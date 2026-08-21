@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Minions Spectator</title>
+<style>
+:root{color-scheme:dark;--bg:#10100f;--panel:#181816;--line:#32302a;--text:#f4f0dc;--muted:#a49d86;--yellow:#ffd84d;--cyan:#5dd9d5;--red:#ff6f61;--green:#8ee06a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:0}
+main{height:100vh;display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr) auto}
+header{grid-column:1/3;height:52px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--line);background:#141411}
+h1{font-size:17px;margin:0;font-weight:700;color:var(--yellow)}.meta{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage{position:relative;min-width:0;min-height:0}.stage:after{content:"";position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-left:2px solid #ffd84dcc;border-top:2px solid #ffd84dcc;transform:rotate(45deg);opacity:.72;pointer-events:none}
+canvas{width:100%;height:100%;display:block;background:#0c0c0b}.asset-status{position:absolute;left:14px;bottom:12px;color:var(--muted);background:#141411d9;border:1px solid var(--line);border-radius:6px;padding:6px 8px}.asset-status.error{color:var(--red)}
+.sidebar{border-left:1px solid var(--line);background:var(--panel);display:grid;grid-template-rows:auto 1fr 1fr;min-height:0}
+.toolbar{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--line)}
+button,select{height:34px;border:1px solid var(--line);background:#222019;color:var(--text);border-radius:6px;padding:0 10px;font:inherit}
+button.active{border-color:var(--yellow);color:#17140a;background:var(--yellow)}select{min-width:88px;max-width:132px}
+.panel{min-height:0;padding:10px;overflow:auto;border-bottom:1px solid var(--line)}.panel h2{font-size:12px;color:var(--muted);text-transform:uppercase;margin:0 0 10px}
+.player{display:grid;grid-template-columns:28px 1fr 42px;gap:8px;align-items:center;margin:8px 0}.badge{height:24px;border-radius:50%;display:grid;place-items:center;background:var(--cyan);color:#071112;font-weight:800}
+.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar{grid-column:2/4;height:7px;border-radius:999px;background:#2d2a22;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--red),var(--green))}
+.event{padding:7px 0;border-bottom:1px solid #292721;color:var(--text)}.event small{color:var(--muted);display:block}
+.scrub{grid-column:1/3;border-top:1px solid var(--line);padding:10px 14px;background:#141411;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}
+input[type=range]{width:100%;accent-color:var(--yellow)}.time{font-variant-numeric:tabular-nums;color:var(--muted)}
+@media(max-width:800px){main{grid-template-columns:1fr;grid-template-rows:auto minmax(360px,1fr) 300px auto}.sidebar{grid-row:3;border-left:0;border-top:1px solid var(--line);grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr}.toolbar{grid-column:1/3}.panel{border-bottom:0}.scrub{grid-row:4;grid-column:1}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Minions Spectator</h1><div class="meta" id="meta"></div></header>
+<section class="stage" id="stage"><canvas id="view"></canvas><div class="asset-status" id="assetStatus">Loading assets</div></section>
+<aside class="sidebar">
+<div class="toolbar"><select id="replaySel" title="Replay"></select><button id="topBtn" class="active">Top</button><button id="fpsBtn">FPS</button><select id="camera"></select></div>
+<section class="panel"><h2>Players</h2><div id="players"></div></section>
+<section class="panel"><h2>Feed</h2><div id="feed"></div></section>
+</aside>
+<section class="scrub"><button id="play">Play</button><input id="range" type="range" min="0" value="0"><div class="time" id="time">0.0s</div></section>
+</main>
+<script type="importmap">
+{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/"}}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+
+const zoneAssets=["sports","sleeping","machine_room","kitchen","bathrooms","hall","sky"];
+const clipNames=["idle","run","strafe","jump","fire","hit","die","crouch"];
+const looping=new Set(["idle","run","strafe","crouch"]);
+const colorHex=["#ffd84d","#5dd9d5","#ff6f61","#8ee06a","#c78cff","#ffb45d","#7aa7ff","#f58bc4"];
+let data,idx=0,playing=false,mode="top",last=0,selected=0,arenaBounds,minionGltf;
+const entries=new Map(),previous=new Map(),clock=new THREE.Clock();
+const canvas=document.getElementById("view"),range=document.getElementById("range"),timeEl=document.getElementById("time"),statusEl=document.getElementById("assetStatus");
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio||1);renderer.setClearColor(0x0c0c0b);renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x10100f,45,115);
+const camera=new THREE.PerspectiveCamera(52,1,.05,220);
+const loader=new GLTFLoader();
+scene.add(new THREE.AmbientLight(0xf4e9be,.72));const sun=new THREE.DirectionalLight(0xffffff,1.9);sun.position.set(-18,34,14);scene.add(sun);
+// Replay picker: list finalized replays in the bucket; selecting one reloads
+// the page with ?id= (a full reload re-inits the scene cleanly).
+fetch("/api/replays").then(r=>r.json()).then(list=>{const sel=document.getElementById("replaySel");if(!Array.isArray(list)||!list.length){sel.style.display="none";return}const cur=new URLSearchParams(location.search).get("id");for(const it of list){const o=document.createElement("option");o.value=it.id;o.textContent=it.id;if(it.id===cur)o.selected=true;sel.appendChild(o)}sel.addEventListener("change",()=>{location.search="?id="+encodeURIComponent(sel.value)})}).catch(()=>{});
+fetch("/api/replay"+location.search).then(r=>r.json()).then(async j=>{data=j;arenaBounds=bounds();range.max=Math.max(0,j.frames.length-1);document.getElementById("meta").textContent=`${j.arena.name} | ${j.frames.length} snapshots | ${j.tick_rate_hz} Hz | ${j.source}`;await loadAssets();syncCamera();drawPanels();requestAnimationFrame(loop)}).catch(showError);
+document.getElementById("play").onclick=()=>{playing=!playing;document.getElementById("play").textContent=playing?"Pause":"Play";last=0};
+document.getElementById("topBtn").onclick=()=>setMode("top");document.getElementById("fpsBtn").onclick=()=>setMode("fps");
+document.getElementById("camera").onchange=e=>{selected=+e.target.value;draw()};range.oninput=e=>{idx=+e.target.value;playing=false;document.getElementById("play").textContent="Play";syncCamera();drawPanels();draw()};
+window.addEventListener("resize",draw);
+function showError(err){console.error(err);statusEl.textContent="Asset load failed";statusEl.classList.add("error")}
+async function loadAssets(){const [minion,...zones]=await Promise.all([loadGltf("/assets/minion/minion.glb"),...zoneAssets.map(n=>loadGltf(`/assets/zones/${n}.glb`))]);minionGltf=minion;for(const z of zones){scene.add(z.scene)}addReplayHelpers();statusEl.textContent="Using GLB assets";setTimeout(()=>statusEl.remove(),1800)}
+function loadGltf(path){return new Promise((resolve,reject)=>loader.load(path,resolve,undefined,reject))}
+function addReplayHelpers(){const b=arenaBounds;const floor=new THREE.Mesh(new THREE.BoxGeometry(b.maxX-b.minX,.08,b.maxZ-b.minZ),new THREE.MeshStandardMaterial({color:0x1a1912,roughness:.9}));floor.position.set((b.minX+b.maxX)/2,-.05,(b.minZ+b.maxZ)/2);scene.add(floor);for(const p of data.arena.powerups){const mat=new THREE.MeshStandardMaterial({color:p.kind==="quad_damage"?0xc78cff:p.kind==="haste"?0x5dd9d5:0xffd84d,emissive:p.kind==="banana"?0x362400:0x101010});const mesh=new THREE.Mesh(new THREE.TorusGeometry(Math.max(.28,p.radius),.055,8,24),mat);mesh.position.set(p.x,.45,p.z);mesh.rotation.x=Math.PI/2;scene.add(mesh)}}
+function setMode(m){mode=m;document.getElementById("topBtn").classList.toggle("active",m==="top");document.getElementById("fpsBtn").classList.toggle("active",m==="fps");draw()}
+function loop(t){const dt=Math.min(clock.getDelta(),.05);for(const e of entries.values())e.mixer.update(dt);if(playing&&data){if(!last)last=t;const step=1000/data.tick_rate_hz;if(t-last>=step){idx=Math.min(idx+1,data.frames.length-1);last=t;range.value=idx;syncCamera();drawPanels();if(idx>=data.frames.length-1)playing=false}}draw();requestAnimationFrame(loop)}
+function frame(){return data.frames[idx]||{tick:0,players:[],events:[]}}
+function bounds(){let b={minX:Infinity,minZ:Infinity,maxX:-Infinity,maxZ:-Infinity};for(const w of data.arena.walls){b.minX=Math.min(b.minX,w.min_x);b.minZ=Math.min(b.minZ,w.min_z);b.maxX=Math.max(b.maxX,w.max_x);b.maxZ=Math.max(b.maxZ,w.max_z)}for(const z of data.arena.zones){b.minX=Math.min(b.minX,z.bounds.min_x);b.minZ=Math.min(b.minZ,z.bounds.min_z);b.maxX=Math.max(b.maxX,z.bounds.max_x);b.maxZ=Math.max(b.maxZ,z.bounds.max_z)}return b}
+function draw(){if(!data)return;resize();applyFrame(frame());placeCamera(frame());renderer.render(scene,camera)}
+function resize(){const r=canvas.getBoundingClientRect();const w=Math.max(1,Math.floor(r.width)),h=Math.max(1,Math.floor(r.height));renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+function placeCamera(f){const w=arenaBounds.maxX-arenaBounds.minX,d=arenaBounds.maxZ-arenaBounds.minZ,cx=(arenaBounds.minX+arenaBounds.maxX)/2,cz=(arenaBounds.minZ+arenaBounds.maxZ)/2;if(mode==="fps"){const p=f.players.find(x=>x.id===selected)||f.players[0];if(p){const eye=new THREE.Vector3(p.x,p.y+(p.crouching?.95:1.55),p.z),dir=new THREE.Vector3(Math.cos(p.yaw)*Math.cos(p.pitch||0),Math.sin(p.pitch||0),Math.sin(p.yaw)*Math.cos(p.pitch||0));camera.fov=70;camera.position.copy(eye);camera.lookAt(eye.clone().add(dir));camera.updateProjectionMatrix();return}}camera.fov=48;camera.position.set(cx,Math.max(w,d)*.72,cz+Math.max(w,d)*.58);camera.lookAt(cx,0,cz);camera.updateProjectionMatrix()}
+function applyFrame(f){const active=new Set(f.players.map(p=>p.id));for(const [id,e] of entries){if(!active.has(id)){scene.remove(e.root);entries.delete(id);previous.delete(id)}}const frameEvents=eventsByPlayer(f);for(const p of f.players){let e=entries.get(p.id);if(!e){e=createPlayer(p.id);entries.set(p.id,e);scene.add(e.root)}const prev=previous.get(p.id);const moving=prev?Math.hypot(p.x-prev.x,p.z-prev.z)>.045:false;previous.set(p.id,{x:p.x,z:p.z});e.root.position.set(p.x,p.y,p.z);e.root.rotation.y=p.yaw;e.root.visible=p.respawn_in===0||desiredClip(p,moving,frameEvents.get(p.id))==="die";playClip(e,desiredClip(p,moving,frameEvents.get(p.id)))}}
+function createPlayer(id){const variant=id%(minionGltf.scenes.length||1);const base=minionGltf.scenes[variant]||minionGltf.scene;const root=SkeletonUtils.clone(base);root.traverse(o=>{if(o.isMesh){o.castShadow=false;o.frustumCulled=false}});const mixer=new THREE.AnimationMixer(root);return{root,mixer,variant,current:null,action:null}}
+function desiredClip(p,moving,eventKind){if(p.respawn_in>0)return"die";if(eventKind==="fire")return"fire";if(eventKind==="hit")return"hit";if(p.crouching)return"crouch";return moving?"run":"idle"}
+function playClip(entry,name){if(entry.current===name)return;const clipIdx=clipNames.indexOf(name),anim=minionGltf.animations[entry.variant*clipNames.length+clipIdx]||minionGltf.animations[clipIdx];if(!anim)return;if(entry.action)entry.action.fadeOut(.08);const action=entry.mixer.clipAction(anim);action.reset().fadeIn(.08).play();action.setLoop(looping.has(name)?THREE.LoopRepeat:THREE.LoopOnce,Infinity);action.clampWhenFinished=true;entry.action=action;entry.current=name}
+function eventsByPlayer(f){const m=new Map();for(const e of f.events){if(e.kind==="fire"&&e.a!=null)m.set(e.a,"fire");if((e.kind==="damage"||e.kind==="scenario_damage")&&e.b!=null)m.set(e.b,"hit");if(e.kind==="scenario_damage"&&e.a!=null)m.set(e.a,"hit")}return m}
+function syncCamera(){const sel=document.getElementById("camera"),players=frame().players;if(!players.some(p=>p.id===selected)&&players[0])selected=players[0].id;sel.innerHTML=players.map(p=>`<option value="${p.id}" ${p.id===selected?"selected":""}>${escapeHtml(p.name)}</option>`).join("")}
+function drawPanels(){const f=frame();timeEl.textContent=(f.tick/data.tick_rate_hz).toFixed(1)+"s";document.getElementById("players").innerHTML=f.players.map(p=>`<div class="player"><div class="badge" style="background:${colorHex[p.id%colorHex.length]}">${p.id}</div><div class="name">${escapeHtml(p.name)}</div><div>${p.health}</div><div class="bar"><div class="fill" style="width:${p.health}%"></div></div></div>`).join("");let events=[];for(let i=0;i<=idx;i++){for(const e of data.frames[i].events)events.push({tick:data.frames[i].tick,...e})}events=events.slice(-10).reverse();document.getElementById("feed").innerHTML=events.map(e=>`<div class="event"><small>${(e.tick/data.tick_rate_hz).toFixed(1)}s | ${e.kind}</small>${escapeHtml(e.text)}</div>`).join("")}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+</script>
+</body>
+</html>

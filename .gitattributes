@@ -1,0 +1,3 @@
+# The player archive exceeds GitHub's regular object limit and is intentionally
+# stored as one canonical release artifact.
+challenges/rythme/release/*.zip filter=lfs diff=lfs merge=lfs -text

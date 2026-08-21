@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#151317">
+  <title>Rythme Crown operations</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div class="wordmark"><span>R</span> RYTHME</div>
+    <div class="live"><i></i> CROWN OPERATIONS</div>
+  </header>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">SYNCED QUALIFIER / SHARED HEAT</p>
+      <h1 id="phase">Connecting</h1>
+      <p id="selection" class="selection">Waiting for coordinator state.</p>
+      <div class="countdown"><span id="countdown">--:--.---</span><small id="deadline-label">NEXT DEADLINE</small></div>
+    </section>
+
+    <section class="grid">
+      <article class="crown card">
+        <div>
+          <p class="label">CROWN OWNER</p>
+          <h2 id="owner">Unclaimed</h2>
+          <p id="hold">No protected hold</p>
+        </div>
+        <div class="crown-mark" aria-hidden="true">◇</div>
+      </article>
+
+      <article class="card protocol">
+        <p class="label">HEAT CONTRACT</p>
+        <dl>
+          <div><dt>Heat</dt><dd id="heat">—</dd></div>
+          <div><dt>Commit</dt><dd id="commit">—</dd></div>
+          <div><dt>Exploit target</dt><dd id="threshold">—</dd></div>
+          <div><dt>Input clock</dt><dd>Server receipt</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    <section class="roster card">
+      <div class="section-title">
+        <div>
+          <p class="label">PERFORMERS</p>
+          <h2>Room telemetry</h2>
+        </div>
+        <span id="performer-count">0 enrolled</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Crew</th><th>Ready</th><th>Frames</th><th>Raw</th><th>Settled</th><th>Status</th></tr></thead>
+          <tbody id="roster"><tr><td colspan="6" class="empty">Enrollment is empty.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="bag-rule">Every completed heat scores independently. The four-mode rotation varies play; it does not delay RSCTF scoring.</p>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

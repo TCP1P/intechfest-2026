@@ -1,0 +1,30 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+protocol = { path = "../protocol" }
+common = { path = "../common" }
+sim = { path = "../sim" }
+replay = { path = "../replay" }
+glam = { workspace = true }
+serde = { workspace = true }
+toml = "0.8"
+tokio = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
+rcgen = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+futures-util = { workspace = true }
+serde_json.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+wtransport = { version = "0.7.1", features = ["dangerous-configuration"] }
+base64 = "0.22.1"
+bytes.workspace = true

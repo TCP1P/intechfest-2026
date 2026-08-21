@@ -1,0 +1,17 @@
+name: fuzz
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  protocol-decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz protocol decode
+        run: cargo fuzz run protocol_decode -- -max_total_time=30

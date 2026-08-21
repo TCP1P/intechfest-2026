@@ -1,0 +1,27 @@
+Minions in 32K is an adapted version of "Minions in 16K" from Project Sekai
+CTF 2026:
+
+  https://github.com/project-sekai-ctf/sekaictf-2026/tree/main/game/minions-in-16k/challenge
+  Upstream commit: e35651f972e1c4f355c18427b3063a9ac98fb2cd
+
+Upstream program code is licensed under AGPL-3.0-only. Upstream content and
+assets are licensed under CC BY-NC-SA 4.0. Copyright remains with the original
+contributors. No upstream endorsement is implied.
+
+RSCTF adaptation changes by dimasma0305, 2026:
+
+- changed the default internal framebuffer from 160x100 to 256x128;
+- renamed user-facing builds and windows to Minions in 32K;
+- added an HTTPS RSCTF capability exchange and pinned arena bootstrap;
+- added a demand-driven match supervisor and RSCTF result adapter;
+- bumped the wire format to protocol v13;
+- added server-authoritative Banana Confirmed objectives with killer-only
+  confirmation, victim-only denial, bounded lifetime/state, and result events;
+- added confirmation HUD/markers, persistent final standings, reusable secure
+  lobby sessions, and a collision-aware reference network bot;
+- packaged the exact corresponding source and applicable licenses with the
+  player build.
+
+The arena foundation, maps, models, audio, authoritative networking, replay
+logic, and legacy bot profiles originate from the upstream challenge. Banana
+Confirmed and the objective-aware solution are adaptation changes.

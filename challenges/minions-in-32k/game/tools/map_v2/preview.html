@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Silo Lab V2 Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #10100f;
+        color: #f4f0dc;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .hud {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        width: min(420px, calc(100vw - 32px));
+        padding: 12px 14px;
+        border: 1px solid rgba(255, 216, 77, 0.35);
+        border-radius: 8px;
+        background: rgba(16, 16, 15, 0.78);
+        backdrop-filter: blur(8px);
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 17px;
+        line-height: 1.2;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: #c7c0a7;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(93, 217, 213, 0.12);
+        border: 1px solid rgba(93, 217, 213, 0.25);
+        color: #d7fbf9;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .controls {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 8px;
+        background: rgba(16, 16, 15, 0.68);
+        color: #c7c0a7;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hud">
+      <h1>Silo Lab V2 3D Prototype</h1>
+      <p>Standalone blockout: central cylinder, three floors, rooms, vertical routes, real minion GLB scale references, and preview-only dynamic balls.</p>
+      <div class="stats" id="stats">
+        <span class="pill">loading GLB</span>
+      </div>
+    </div>
+    <div class="controls">Drag to orbit<br />Wheel to zoom<br />R to reset view</div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../../crates/spectator/src/vendor/three/three.module.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "../../crates/spectator/src/vendor/three/three.module.js";
+      import { GLTFLoader } from "../../crates/spectator/src/vendor/three/addons/loaders/GLTFLoader.js";
+      import { clone } from "../../crates/spectator/src/vendor/three/addons/utils/SkeletonUtils.js";
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x10100f);
+      scene.fog = new THREE.Fog(0x10100f, 55, 130);
+
+      const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 220);
+      const target = new THREE.Vector3(0, 4.6, 0);
+      let radius = 72;
+      let theta = Math.PI * 0.22;
+      let phi = Math.PI * 0.32;
+
+      const hemi = new THREE.HemisphereLight(0xfff5c2, 0x222433, 1.55);
+      scene.add(hemi);
+      const key = new THREE.DirectionalLight(0xffffff, 2.3);
+      key.position.set(25, 45, 18);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0x5dd9d5, 0.85);
+      fill.position.set(-30, 18, -24);
+      scene.add(fill);
+
+      const loader = new GLTFLoader();
+      const stats = document.getElementById("stats");
+      const mixers = [];
+      const balls = [];
+      const clock = new THREE.Clock();
+      let propMeta = null;
+      let cannonTimer = 0;
+      let elevator;
+
+      function updateStats(extra = "") {
+        const propCount = propMeta?.props?.length ?? 0;
+        stats.innerHTML = `
+          <span class="pill">${propCount} prop contracts</span>
+          <span class="pill">3 floors</span>
+          <span class="pill">dynamic balls preview</span>
+          ${extra ? `<span class="pill">${extra}</span>` : ""}
+        `;
+      }
+
+      function normalizeLoadedMaterials(root) {
+        root.traverse((obj) => {
+          if (!obj.isMesh) return;
+          obj.castShadow = false;
+          obj.receiveShadow = true;
+          const hasColors = !!obj.geometry?.attributes?.color;
+          obj.material = new THREE.MeshStandardMaterial({
+            vertexColors: hasColors,
+            color: hasColors ? 0xffffff : 0xd8d0b5,
+            roughness: 0.9,
+            metalness: 0.02,
+            side: THREE.DoubleSide,
+          });
+        });
+      }
+
+      async function loadMap() {
+        const response = await fetch("../previews/map_v2/silo_lab_props.json");
+        propMeta = await response.json();
+        updateStats("metadata loaded");
+
+        await new Promise((resolve, reject) => {
+          loader.load(
+            "../previews/map_v2/silo_lab.glb",
+            (gltf) => {
+              normalizeLoadedMaterials(gltf.scene);
+              scene.add(gltf.scene);
+              updateStats("map loaded");
+              resolve();
+            },
+            undefined,
+            reject,
+          );
+        });
+
+        addDynamicPhysicsPreview();
+        loadMinionScaleRefs();
+      }
+
+      function addDynamicPhysicsPreview() {
+        const platformGeo = new THREE.CylinderGeometry(3, 3, 0.22, 28);
+        const platformMat = new THREE.MeshStandardMaterial({
+          color: 0xffd84d,
+          roughness: 0.72,
+          emissive: 0x423100,
+          emissiveIntensity: 0.35,
+        });
+        elevator = new THREE.Mesh(platformGeo, platformMat);
+        elevator.position.set(0, 0.32, 0);
+        scene.add(elevator);
+
+        for (let i = 0; i < 4; i++) {
+          spawnBall(-28 - i * 0.9, 1.15 + i * 0.18, -16 + (i - 1.5) * 0.35, 7 + i * 0.5, 4.6 + i * 0.25, (i - 1.5) * 0.9);
+        }
+      }
+
+      function spawnBall(x, y, z, vx, vy, vz) {
+        const geom = new THREE.IcosahedronGeometry(0.52, 2);
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0xf8f1dc,
+          roughness: 0.82,
+          metalness: 0.0,
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(x, y, z);
+        scene.add(mesh);
+        balls.push({
+          mesh,
+          pos: mesh.position,
+          vel: new THREE.Vector3(vx, vy, vz),
+          spin: new THREE.Vector3(Math.random() * 2, Math.random() * 2, Math.random() * 2),
+          age: 0,
+        });
+        if (balls.length > 9) {
+          const old = balls.shift();
+          scene.remove(old.mesh);
+          old.mesh.geometry.dispose();
+          old.mesh.material.dispose();
+        }
+      }
+
+      function loadMinionScaleRefs() {
+        loader.load(
+          "../../assets/minion/minion.glb",
+          (gltf) => {
+            const placements = [
+              [-18, 0, -18, 0],
+              [18, 0, 18, Math.PI],
+              [0, 8, 14, Math.PI * 0.75],
+            ];
+            placements.forEach(([x, y, z, yaw]) => {
+              const inst = clone(gltf.scene);
+              inst.position.set(x, y, z);
+              inst.rotation.y = yaw;
+              inst.scale.setScalar(1.0);
+              scene.add(inst);
+              if (gltf.animations.length) {
+                const mixer = new THREE.AnimationMixer(inst);
+                mixer.clipAction(gltf.animations[0]).play();
+                mixers.push(mixer);
+              }
+            });
+            updateStats("minions loaded");
+          },
+          undefined,
+          () => updateStats("minion load skipped"),
+        );
+      }
+
+      function physicsStep(dt, elapsed) {
+        cannonTimer += dt;
+        if (cannonTimer > 2.2) {
+          cannonTimer = 0;
+          spawnBall(-30.2, 1.05, -16, 9.5, 4.8, (Math.random() - 0.5) * 2.5);
+        }
+
+        if (elevator) {
+          const phase = (Math.sin(elapsed * 0.85) + 1) * 0.5;
+          elevator.position.y = 0.32 + phase * 7.72;
+        }
+
+        for (const ball of balls) {
+          ball.age += dt;
+          ball.vel.y -= 18 * dt;
+          ball.pos.addScaledVector(ball.vel, dt);
+
+          const floorY = ball.pos.y > 4.7 ? 8.52 : ball.pos.y > 1.6 ? 4.52 : 0.52;
+          if (ball.pos.y < floorY) {
+            ball.pos.y = floorY;
+            ball.vel.y = Math.abs(ball.vel.y) * 0.58;
+            ball.vel.x *= 0.985;
+            ball.vel.z *= 0.985;
+          }
+
+          if (ball.pos.x < -35 || ball.pos.x > 35) {
+            ball.pos.x = THREE.MathUtils.clamp(ball.pos.x, -35, 35);
+            ball.vel.x *= -0.72;
+          }
+          if (ball.pos.z < -23 || ball.pos.z > 23) {
+            ball.pos.z = THREE.MathUtils.clamp(ball.pos.z, -23, 23);
+            ball.vel.z *= -0.72;
+          }
+
+          const radial = Math.hypot(ball.pos.x, ball.pos.z);
+          if (radial < 6.45) {
+            const nx = ball.pos.x / (radial || 1);
+            const nz = ball.pos.z / (radial || 1);
+            ball.pos.x = nx * 6.45;
+            ball.pos.z = nz * 6.45;
+            const dot = ball.vel.x * nx + ball.vel.z * nz;
+            if (dot < 0) {
+              ball.vel.x -= 1.65 * dot * nx;
+              ball.vel.z -= 1.65 * dot * nz;
+            }
+          }
+
+          ball.mesh.rotation.x += ball.spin.x * dt + ball.vel.z * dt * 0.15;
+          ball.mesh.rotation.y += ball.spin.y * dt + ball.vel.x * dt * 0.15;
+          ball.mesh.rotation.z += ball.spin.z * dt;
+        }
+      }
+
+      function updateCamera() {
+        const sinPhi = Math.sin(phi);
+        camera.position.set(
+          target.x + radius * sinPhi * Math.sin(theta),
+          target.y + radius * Math.cos(phi),
+          target.z + radius * sinPhi * Math.cos(theta),
+        );
+        camera.lookAt(target);
+      }
+
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+
+      renderer.domElement.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        renderer.domElement.setPointerCapture(event.pointerId);
+      });
+
+      renderer.domElement.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - lastX;
+        const dy = event.clientY - lastY;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        theta -= dx * 0.006;
+        phi = THREE.MathUtils.clamp(phi + dy * 0.005, 0.16, Math.PI * 0.48);
+        updateCamera();
+      });
+
+      renderer.domElement.addEventListener("pointerup", () => {
+        dragging = false;
+      });
+
+      renderer.domElement.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        radius = THREE.MathUtils.clamp(radius + event.deltaY * 0.035, 24, 120);
+        updateCamera();
+      }, { passive: false });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key.toLowerCase() !== "r") return;
+        radius = 72;
+        theta = Math.PI * 0.22;
+        phi = Math.PI * 0.32;
+        target.set(0, 4.6, 0);
+        updateCamera();
+      });
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.05);
+        const elapsed = clock.elapsedTime;
+        mixers.forEach((mixer) => mixer.update(dt));
+        physicsStep(dt, elapsed);
+        renderer.render(scene, camera);
+      }
+
+      updateCamera();
+      loadMap().catch((err) => {
+        console.error(err);
+        stats.innerHTML = `<span class="pill">load failed</span>`;
+      });
+      animate();
+    </script>
+  </body>
+</html>

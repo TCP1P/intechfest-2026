@@ -1,0 +1,28 @@
+[package]
+name = "rythme-native"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[features]
+# Enables the native channel implementation on a non-Windows host solely for
+# the graphical end-to-end smoke harness. Production release builds never set
+# this feature and retain the Windows image-integrity boundary.
+e2e-smoke = []
+
+[lib]
+name = "rythme_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+hmac = "=0.12.1"
+sha2 = "=0.10.9"
+
+[profile.release]
+codegen-units = 1
+incremental = false
+lto = "fat"
+opt-level = "z"
+overflow-checks = true
+panic = "abort"
+strip = "symbols"

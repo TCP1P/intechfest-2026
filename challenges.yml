@@ -1,0 +1,21 @@
+# HTB Challenge Configuration
+# Each challenge is defined with the fields that end up in its generated challenge.yml:
+#   name, author, difficulty (Very Easy/Easy/Medium/Hard/Insane), category (web/pwn/crypto/
+#   reversing/forensics/misc/...), description (player-facing lore), objective (technical
+#   summary), flag ('HTB{...}'; a placeholder is generated if omitted).
+
+challenges:
+  - name: "Rythme"
+    author: "dimasma0305"
+    difficulty: "Hard"
+    category: "reversing"
+    description: "Rythme is Syncore's live Crown qualifier, where every crew receives the same surprise track, discipline, and synchronized start. The arena countdown is running while the current owner banks bracket points and the integrity desk trusts every signed result. You are an external integrity crew, and you must take the Crown before the next settlement. Win and your crew controls the qualifier. Fail and the incumbent locks in another payout."
+    objective: "Reverse the supplied client so its modifier attestation diverges from Normal gameplay, then complete a fresh server-timed heat and submit the forged manifest to capture the Crown."
+    flag: "HTB{h34d3rs_d0_n0t_pr0v3_th3_rhythm}"
+  - name: "Minions in 32K"
+    author: "Project Sekai CTF contributors and dimasma0305"
+    difficulty: "Hard"
+    category: "game"
+    description: "Gru's Lab is under new management, and every squad is fighting for control inside a 32,768-pixel combat feed. Eliminate rivals, route confirmations through the objective network, and keep your performance ahead while the hill is active."
+    objective: "Reverse protocol v13, automate objective-aware combat and confirmation routing, and sustain the best confirmed performance across the arena."
+    flag: "HTB{confirm_the_objective_before_you_claim_the_hill}"

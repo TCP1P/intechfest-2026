@@ -1,0 +1,12 @@
+.git
+**/target
+game/replays/**
+game/dist
+src/**
+release/**
+htb/**
+brainstorm/**
+challenge/**
+*.md
+build-*.sh
+challenge.yml

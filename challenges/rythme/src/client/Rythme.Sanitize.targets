@@ -1,0 +1,12 @@
+<Project>
+  <Target Name="SanitizeSentryProjectDirectory"
+          AfterTargets="WriteSentryAttributes"
+          BeforeTargets="CoreCompile"
+          Condition="'$(SentryAttributesFile)' != ''">
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)$(SentryAttributesFile)"
+      Lines="[assembly: System.Reflection.AssemblyMetadata(&quot;Sentry.ProjectDirectory&quot;, &quot;/src/&quot;)]"
+      Overwrite="true"
+      Encoding="UTF-8" />
+  </Target>
+</Project>

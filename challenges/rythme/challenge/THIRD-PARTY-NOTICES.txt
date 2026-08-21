@@ -1,0 +1,142 @@
+RYTHME THIRD-PARTY NOTICES
+==========================
+
+osu!lazer
+---------
+
+Rythme includes substantial unmodified code and assemblies built from the
+ppy/osu source tree at commit:
+
+  0f3d3c3be19b134779879b3f18fe315da035c1ac
+
+Copyright (c) ppy Pty Ltd <contact@ppy.sh>
+
+The osu! source is licensed under the MIT License. The complete upstream
+license is distributed as OSU-LICENCE.txt beside this file.
+
+Rust and RustCrypto
+-------------------
+
+Rythme contains a native Windows component compiled with Rust 1.96.0. It
+statically links the following crates and their build dependencies:
+
+  hmac 0.12.1
+  sha2 0.10.9
+  block-buffer 0.10.4
+  cfg-if 1.0.4
+  cpufeatures 0.2.17
+  crypto-common 0.1.7
+  digest 0.10.7
+  generic-array 0.14.7
+  libc 0.2.189
+  subtle 2.6.1
+  typenum 1.20.1
+  version_check 0.9.5
+
+These components are available under the MIT License or a compatible dual
+MIT/Apache-2.0 choice. Rythme distributes them under their MIT terms:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Project and license information:
+
+  https://www.rust-lang.org/
+  https://github.com/RustCrypto/MACs
+  https://github.com/RustCrypto/hashes
+
+osu! resources
+--------------
+
+The client packages resources from ppy/osu-resources. The repository describes
+the majority of those resources as licensed under Creative Commons
+Attribution-NonCommercial 4.0 International:
+
+  https://github.com/ppy/osu-resources
+  https://github.com/ppy/osu-resources/blob/master/LICENCE.md
+  https://creativecommons.org/licenses/by-nc/4.0/
+
+The files are used in this non-commercial CTF client. Software and resource
+licenses do not grant rights to the osu! or ppy trademarks. Event operators
+remain responsible for any required brand clearance.
+
+Community beatmaps
+------------------
+
+Rythme selects exact, unmodified community beatmap difficulties. Each reveal
+shows the community metadata, mapper, ruleset, difficulty, star rating,
+BeatmapSetID, BeatmapID, official page, archive source, and pinned SHA-256.
+Rythme does not replace the hit objects with generated charts.
+
+The pinned pool currently references:
+
+  https://osu.ppy.sh/beatmapsets/1738898#osu/3554008
+  https://osu.ppy.sh/beatmapsets/524290#osu/1112812
+  https://osu.ppy.sh/beatmapsets/2373965#osu/5126454
+  https://osu.ppy.sh/beatmapsets/2341894#osu/5033291
+  https://osu.ppy.sh/beatmapsets/1891267#osu/3896717
+  https://osu.ppy.sh/beatmapsets/2213167#taiko/4689082
+  https://osu.ppy.sh/beatmapsets/1634417#taiko/3335833
+  https://osu.ppy.sh/beatmapsets/501705#taiko/1067687
+  https://osu.ppy.sh/beatmapsets/2536592#taiko/5610786
+  https://osu.ppy.sh/beatmapsets/1644963#taiko/3357775
+  https://osu.ppy.sh/beatmapsets/2015516#fruits/4195570
+  https://osu.ppy.sh/beatmapsets/1709368#fruits/4328219
+  https://osu.ppy.sh/beatmapsets/2570602#fruits/5720846
+  https://osu.ppy.sh/beatmapsets/1405759#fruits/2898921
+  https://osu.ppy.sh/beatmapsets/1350195#fruits/2795454
+  https://osu.ppy.sh/beatmapsets/2440778#mania/5324317
+  https://osu.ppy.sh/beatmapsets/2443133#mania/5330970
+  https://osu.ppy.sh/beatmapsets/1897904#mania/3911688
+  https://osu.ppy.sh/beatmapsets/1689629#mania/3452912
+  https://osu.ppy.sh/beatmapsets/1891137#mania/3896469
+  https://osu.ppy.sh/beatmapsets/2353723#mania/5066848
+
+Beatmap and music rights remain with their respective creators and rights
+holders. Inclusion in a public beatmap listing does not itself grant general
+redistribution rights. The source repository therefore does not bundle these
+.osz archives. Event operators must review the selected maps, obtain any
+permission required for their event, and populate the optional coordinator
+cache only when permitted.
+
+The event client normally retrieves each exact archive directly from the
+pinned HTTPS source, using a separate connection without event credentials or
+cookies. It rejects redirects and accepts an archive only after SHA-256
+verification. The coordinator provides a verified fallback from its organizer
+cache. The current source is the third-party Catboy beatmap mirror, which can
+observe the player's source IP. Catboy is not operated by ppy or by Rythme, and
+its availability does not change the pinned BeatmapSetID, BeatmapID, or
+SHA-256 validation.
+
+Organizer song list
+-------------------
+
+The organizer supplied titles, artists, albums, dates, and durations as
+curation metadata. Rythme uses no Spotify audio, artwork, API response, access
+token, application credential, or player session.
+
+Some community maps use an original recording or another cover of the supplied
+song. Rythme preserves the map's actual metadata and records that distinction
+in the author source ledger. It does not claim that two recordings are the
+same asset.
+
+No affiliation
+--------------
+
+Rythme is an independent CTF challenge. It is not affiliated with, endorsed by,
+or connected to ppy Pty Ltd, osu!, Catboy, Spotify, or any listed artist.

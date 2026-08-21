@@ -1,0 +1,188 @@
+diff --git a/osu.Framework/Input/MouseButtonEventManager.cs b/osu.Framework/Input/MouseButtonEventManager.cs
+index 988f69e8b..082ab9c1e 100644
+--- a/osu.Framework/Input/MouseButtonEventManager.cs
++++ b/osu.Framework/Input/MouseButtonEventManager.cs
+@@ -199,8 +199,17 @@ namespace osu.Framework.Input
+ 
+             Trace.Assert(MouseDownPosition != null);
+ 
+-            DragStarted = true;
++            // A press which began outside the window can be reflected in the
++            // mouse state without producing a button-down input queue. Treat
++            // it as an orphaned gesture instead of passing null to LINQ. The
++            // next real press will establish a fresh queue normally.
++            if (ButtonDownInputQueue == null)
++            {
++                MouseDownPosition = null;
++                return;
++            }
+ 
++            DragStarted = true;
+             // also the laziness of IEnumerable here
+             var drawables = ButtonDownInputQueue.AsNonNull().Where(d => d.IsRootedAt(InputManager));
+ 
+diff --git a/osu.Framework.Tests/Input/MouseInputTest.cs b/osu.Framework.Tests/Input/MouseInputTest.cs
+index 460d50567..f3d2ada98 100644
+--- a/osu.Framework.Tests/Input/MouseInputTest.cs
++++ b/osu.Framework.Tests/Input/MouseInputTest.cs
+@@ -4,6 +4,7 @@
+ #nullable disable
+ 
+ using System;
++using System.Reflection;
+ using NUnit.Framework;
+ using osu.Framework.Graphics;
+ using osu.Framework.Graphics.Containers;
+@@ -10,6 +11,7 @@
+ using osu.Framework.Graphics.Shapes;
++using osu.Framework.Input;
+ using osu.Framework.Input.Events;
+ using osu.Framework.Testing;
+ using osuTK;
+ using osuTK.Input;
+ 
+@@ -137,6 +139,46 @@ public void TestNoLongerValidChildDrawableDoesNotReceiveDragStart()
+             AddAssert("receptor did not receive drag start", () => !receptor.DragStartReceived);
+         }
+ 
++        /// <summary>
++        /// A mouse press can begin outside the window, leaving the current
++        /// state pressed without a button-down input queue. Moving back into
++        /// the window must not crash and the next normal drag must still work.
++        /// </summary>
++        [Test]
++        public void TestDragWithoutButtonDownQueueDoesNotCrash()
++        {
++            InputReceptor receptor = null;
++            Vector2 start = Vector2.Zero;
++
++            AddStep("create receptor", () =>
++            {
++                Child = receptor = new InputReceptor { Size = new Vector2(300) };
++            });
++            AddStep("move mouse to receptor", () =>
++            {
++                start = receptor.ToScreenSpace(receptor.LayoutRectangle.Centre);
++                InputManager.MoveMouseTo(start);
++            });
++            AddStep("press button", () => InputManager.PressButton(MouseButton.Left));
++            AddStep("lose button-down queue", () =>
++            {
++                MouseButtonEventManager manager = InputManager.GetButtonEventManagerFor(MouseButton.Left);
++                PropertyInfo queue = typeof(ButtonEventManager<MouseButton>).GetProperty(
++                    "ButtonDownInputQueue",
++                    BindingFlags.Instance | BindingFlags.NonPublic);
++                Assert.That(queue, Is.Not.Null);
++                queue.SetValue(manager, null);
++            });
++            AddStep("move orphaned press", () => InputManager.MoveMouseTo(start + new Vector2(30)));
++            AddAssert("orphaned press did not drag", () => !receptor.DragStartReceived);
++            AddStep("release orphaned press", () => InputManager.ReleaseButton(MouseButton.Left));
++
++            AddStep("press normally", () => InputManager.PressButton(MouseButton.Left));
++            AddStep("drag normally", () => InputManager.MoveMouseTo(start + new Vector2(60)));
++            AddAssert("next normal drag works", () => receptor.DragStartReceived);
++            AddStep("release normal drag", () => InputManager.ReleaseButton(MouseButton.Left));
++        }
++
+         private partial class InputReceptor : Box
+         {
+             public bool ClickReceived { get; set; }
+diff --git a/osu.Framework/Input/KeyEventManager.cs b/osu.Framework/Input/KeyEventManager.cs
+index d1434a3bf..56529b20b 100644
+--- a/osu.Framework/Input/KeyEventManager.cs
++++ b/osu.Framework/Input/KeyEventManager.cs
+@@ -23,6 +23,12 @@ namespace osu.Framework.Input
+ 
+         public void HandleRepeat(InputState state)
+         {
++            // A repeat can be forwarded after the originating key-down was
++            // missed by this input manager. Without a down queue there are no
++            // valid recipients for the repeat.
++            if (ButtonDownInputQueue == null)
++                return;
++
+             // Only drawables that can still handle input should handle the repeat
+             var drawables = ButtonDownInputQueue.AsNonNull().Intersect(InputQueue);
+ 
+diff --git a/osu.Framework/Input/TouchEventManager.cs b/osu.Framework/Input/TouchEventManager.cs
+index 97ff95a1f..315cedc8e 100644
+--- a/osu.Framework/Input/TouchEventManager.cs
++++ b/osu.Framework/Input/TouchEventManager.cs
+@@ -37,6 +37,11 @@ namespace osu.Framework.Input
+ 
+         private void handleTouchMove(InputState state, Vector2 position, Vector2 lastPosition)
+         {
++            // Touch movement may reach an input manager without the matching
++            // touch-down (for example after focus or pass-through changes).
++            if (ButtonDownInputQueue == null)
++                return;
++
+             PropagateButtonEvent(ButtonDownInputQueue!.Where(d => d.IsRootedAt(InputManager)), new TouchMoveEvent(state, new Touch(Button, position), TouchDownPosition, lastPosition));
+         }
+ 
+diff --git a/osu.Framework.Tests/Input/KeyboardInputTest.cs b/osu.Framework.Tests/Input/KeyboardInputTest.cs
+index 4cb72130e..21a8ce77a 100644
+--- a/osu.Framework.Tests/Input/KeyboardInputTest.cs
++++ b/osu.Framework.Tests/Input/KeyboardInputTest.cs
+@@ -8,6 +8,7 @@ using System;
+ using osu.Framework.Graphics;
+ using osu.Framework.Graphics.Containers;
+ using osu.Framework.Graphics.Shapes;
++using osu.Framework.Input;
+ using osu.Framework.Input.Events;
+ using osu.Framework.Testing;
+ using osuTK;
+@@ -92,6 +93,21 @@ namespace osu.Framework.Tests.Input
+             AddAssert("receptor 0 did not receive repeat", () => !receptors[0].RepeatReceived);
+         }
+ 
++        [Test]
++        public void TestRepeatWithoutButtonDownQueueDoesNotCrash()
++        {
++            InputReceptor receptor = null;
++
++            AddStep("create receptor", () => Child = receptor = new InputReceptor { Size = new Vector2(100) });
++            AddStep("repeat without key down", () => InputManager.GetButtonEventManagerFor(Key.A).HandleRepeat(InputManager.CurrentState));
++            AddAssert("orphaned repeat was ignored", () => !receptor.RepeatReceived);
++
++            AddStep("press normally", () => InputManager.PressKey(Key.A));
++            AddStep("repeat normally", () => InputManager.GetButtonEventManagerFor(Key.A).HandleRepeat(InputManager.CurrentState));
++            AddAssert("next normal repeat works", () => receptor.RepeatReceived);
++            AddStep("release normally", () => InputManager.ReleaseKey(Key.A));
++        }
++
+         /// <summary>
+         /// Tests that a drawable whose parent is removed from the hierarchy (or is otherwise removed from the input queues) won't receive OnKeyDown() events for every subsequent repeat.
+         /// </summary>
+diff --git a/osu.Framework.Tests/Input/TouchInputTest.cs b/osu.Framework.Tests/Input/TouchInputTest.cs
+index ffef529a1..d0c4797f7 100644
+--- a/osu.Framework.Tests/Input/TouchInputTest.cs
++++ b/osu.Framework.Tests/Input/TouchInputTest.cs
+@@ -53,6 +53,26 @@ namespace osu.Framework.Tests.Input
+             AddAssert("receptor did not receive touch move", () => !receptor.TouchMoveReceived);
+         }
+ 
++        [Test]
++        public void TestMoveWithoutButtonDownQueueDoesNotCrash()
++        {
++            InputReceptor receptor = null;
++            Vector2 start = Vector2.Zero;
++
++            AddStep("create receptor", () =>
++            {
++                Child = receptor = new InputReceptor { Size = new Vector2(100) };
++                start = receptor.ToScreenSpace(receptor.LayoutRectangle.Centre);
++            });
++            AddStep("move touch without touch down", () => InputManager.MoveTouchTo(new Touch(TouchSource.Touch1, start)));
++            AddAssert("orphaned move was ignored", () => !receptor.TouchMoveReceived);
++
++            AddStep("begin touch normally", () => InputManager.BeginTouch(new Touch(TouchSource.Touch1, start)));
++            AddStep("move touch normally", () => InputManager.MoveTouchTo(new Touch(TouchSource.Touch1, start + new Vector2(10))));
++            AddAssert("next normal touch move works", () => receptor.TouchMoveReceived);
++            AddStep("end touch normally", () => InputManager.EndTouch(new Touch(TouchSource.Touch1, start + new Vector2(10))));
++        }
++
+         private partial class InputReceptor : Box
+         {
+             public bool TouchMoveReceived { get; set; }

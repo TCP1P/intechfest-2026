@@ -1,0 +1,20 @@
+# Keep the Docker build context to only what the scoring service needs. The
+# writeup, solver, handout, client sources, and metadata never enter the image.
+.git
+.gitignore
+.claude
+.agents
+.cursor
+htb
+release
+playtest
+.playtest-audit.json
+brainstorm
+assets
+challenge
+src/client
+src/shared/beatmap-cache
+README.md
+CLAUDE.md
+challenge.yml
+build-release.sh

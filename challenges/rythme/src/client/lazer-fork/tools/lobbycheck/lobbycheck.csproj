@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeLobbyAutomation.cs" Link="RythmeLobbyAutomation.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeLobbyPhase.cs" Link="RythmeLobbyPhase.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeHeatPreparation.cs" Link="RythmeHeatPreparation.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeModLoadouts.cs" Link="RythmeModLoadouts.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeOptions.cs" Link="RythmeOptions.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeReconnectPolicy.cs" Link="RythmeReconnectPolicy.cs" />
+    <Compile Include="../../overlay/osu.Desktop/Rythme/RythmeSynchronizedStart.cs" Link="RythmeSynchronizedStart.cs" />
+    <Compile Include="../../../Rythme.Desktop/RythmeCancellationLifetime.cs" Link="RythmeCancellationLifetime.cs" />
+    <Compile Include="../../../Rythme.Desktop/BackgroundFailure.cs" Link="BackgroundFailure.cs" />
+  </ItemGroup>
+</Project>

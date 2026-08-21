@@ -1,0 +1,14 @@
+{
+  "floor_y": 0.0,
+  "ceiling_y": 20.0,
+  "zones": [
+    "sports",
+    "sleeping",
+    "machine_room",
+    "kitchen",
+    "bathrooms",
+    "hall",
+    "secret",
+    "sky"
+  ]
+}

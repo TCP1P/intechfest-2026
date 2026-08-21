@@ -1,0 +1,24 @@
+{
+  "name": "rythme-trailer",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "render": "remotion render src/index.ts RythmeTrailer",
+    "studio": "remotion studio src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.501",
+    "@remotion/media": "4.0.501",
+    "@remotion/transitions": "4.0.501",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.501"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.12",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

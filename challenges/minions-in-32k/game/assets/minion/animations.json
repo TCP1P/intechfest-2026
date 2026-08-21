@@ -1,0 +1,68 @@
+{
+  "variants": [
+    {
+      "name": "classic",
+      "scene": 0,
+      "animation_offset": 0
+    },
+    {
+      "name": "bob",
+      "scene": 1,
+      "animation_offset": 8
+    },
+    {
+      "name": "kevin",
+      "scene": 2,
+      "animation_offset": 16
+    },
+    {
+      "name": "stuart",
+      "scene": 3,
+      "animation_offset": 24
+    }
+  ],
+  "animations": [
+    {
+      "name": "idle",
+      "duration": 2.0,
+      "loop": true
+    },
+    {
+      "name": "run",
+      "duration": 0.6,
+      "loop": true
+    },
+    {
+      "name": "strafe",
+      "duration": 0.8,
+      "loop": true
+    },
+    {
+      "name": "jump",
+      "duration": 0.75,
+      "loop": false
+    },
+    {
+      "name": "fire",
+      "duration": 0.3,
+      "loop": false
+    },
+    {
+      "name": "hit",
+      "duration": 0.45,
+      "loop": false
+    },
+    {
+      "name": "die",
+      "duration": 1.1,
+      "loop": false
+    },
+    {
+      "name": "crouch",
+      "duration": 0.5,
+      "loop": true
+    }
+  ],
+  "gun_mount_joint": "gun",
+  "notes": "All clips author root at origin. Translation for locomotion is server-authoritative; these clips express pose only."
+}

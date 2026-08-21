@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>rythme-client</AssemblyName>
+    <RootNamespace>Rythme.Desktop</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0</Version>
+    <OsuSourceRoot Condition="'$(OsuSourceRoot)' == ''">$(RYTHME_OSU_SOURCE)</OsuSourceRoot>
+  </PropertyGroup>
+
+  <Target Name="RequirePinnedOsuSource" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(OsuSourceRoot)/osu.Game/osu.Game.csproj')"
+           Text="Set RYTHME_OSU_SOURCE or -p:OsuSourceRoot=... to the pinned ppy/osu checkout." />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="$(OsuSourceRoot)/osu.Game/osu.Game.csproj" />
+    <ProjectReference Include="$(OsuSourceRoot)/osu.Game.Rulesets.Osu/osu.Game.Rulesets.Osu.csproj" />
+    <ProjectReference Include="$(OsuSourceRoot)/osu.Game.Rulesets.Taiko/osu.Game.Rulesets.Taiko.csproj" />
+    <ProjectReference Include="$(OsuSourceRoot)/osu.Game.Rulesets.Catch/osu.Game.Rulesets.Catch.csproj" />
+    <ProjectReference Include="$(OsuSourceRoot)/osu.Game.Rulesets.Mania/osu.Game.Rulesets.Mania.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../../shared/pool.json" LogicalName="Rythme.pool.json" />
+  </ItemGroup>
+</Project>

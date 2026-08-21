@@ -1,0 +1,7 @@
+node_modules/
+out/
+.cache/
+.remotion/
+public/*.mp3
+public/*.mp4
+public/sfx/

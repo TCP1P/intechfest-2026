@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .bg { fill: #10100f; }
+      .panel { fill: #181816; stroke: #423d31; stroke-width: 2; rx: 10; }
+      .room { fill: #24231d; stroke: #665f46; stroke-width: 3; rx: 12; }
+      .cat { fill: #343129; stroke: #ffd84d; stroke-width: 2; stroke-dasharray: 10 6; }
+      .core { fill: #272724; stroke: #ffd84d; stroke-width: 5; }
+      .shaft { fill: none; stroke: #5dd9d5; stroke-width: 4; stroke-dasharray: 6 8; }
+      .prop { fill: #ffd84d; stroke: #0b0b0a; stroke-width: 2; }
+      .danger { fill: #ff6f61; stroke: #0b0b0a; stroke-width: 2; }
+      .goop { fill: #8ee06a; stroke: #0b0b0a; stroke-width: 2; }
+      .label { fill: #f4f0dc; font: 18px system-ui, sans-serif; font-weight: 700; }
+      .small { fill: #a49d86; font: 14px system-ui, sans-serif; }
+      .tiny { fill: #f4f0dc; font: 12px system-ui, sans-serif; }
+      .arrow { stroke: #5dd9d5; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#5dd9d5"/>
+    </marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+
+  <text class="label" x="40" y="42">Map V2 Sketch: Silo Lab</text>
+  <text class="small" x="40" y="66">Three readable floors around one large central cylinder. Props are gameplay devices, not decoration.</text>
+
+  <!-- F0 -->
+  <g transform="translate(40 100)">
+    <rect class="panel" x="0" y="0" width="330" height="250"/>
+    <text class="label" x="14" y="28">F0 main floor</text>
+    <rect class="room" x="22" y="50" width="118" height="70"/>
+    <rect class="room" x="190" y="50" width="118" height="70"/>
+    <rect class="room" x="22" y="160" width="118" height="70"/>
+    <rect class="room" x="190" y="160" width="118" height="70"/>
+    <circle class="core" cx="165" cy="140" r="48"/>
+    <circle class="shaft" cx="165" cy="140" r="31"/>
+    <path class="cat" d="M82 125 H248 V155 H82 Z"/>
+    <text class="tiny" x="42" y="88">sports</text>
+    <text class="tiny" x="211" y="88">kitchen</text>
+    <text class="tiny" x="48" y="198">dorm</text>
+    <text class="tiny" x="207" y="198">bathrooms</text>
+    <circle class="prop" cx="116" cy="88" r="8"/>
+    <rect class="prop" x="248" y="82" width="18" height="12" rx="3"/>
+    <rect class="prop" x="75" y="193" width="24" height="10" rx="5"/>
+    <path class="prop" d="M240 195 q16 14 32 0" fill="none" stroke="#ffd84d" stroke-width="5"/>
+    <text class="small" x="111" y="145">silo</text>
+  </g>
+
+  <!-- F1 -->
+  <g transform="translate(435 100)">
+    <rect class="panel" x="0" y="0" width="330" height="250"/>
+    <text class="label" x="14" y="28">F1 control catwalk</text>
+    <rect class="room" x="22" y="50" width="118" height="70"/>
+    <rect class="room" x="190" y="50" width="118" height="70"/>
+    <rect class="room" x="22" y="160" width="118" height="70"/>
+    <rect class="room" x="190" y="160" width="118" height="70"/>
+    <circle class="core" cx="165" cy="140" r="52"/>
+    <circle class="shaft" cx="165" cy="140" r="32"/>
+    <path class="cat" d="M72 126 C96 76, 234 76, 258 126 C282 178, 48 178, 72 126 Z"/>
+    <text class="tiny" x="43" y="88">control</text>
+    <text class="tiny" x="218" y="88">goop</text>
+    <text class="tiny" x="48" y="198">claw</text>
+    <text class="tiny" x="215" y="198">fans</text>
+    <rect class="danger" x="83" y="82" width="20" height="16" rx="8"/>
+    <circle class="goop" cx="249" cy="91" r="10"/>
+    <path class="prop" d="M70 193 q24 -25 48 0" fill="none" stroke="#ffd84d" stroke-width="5"/>
+    <path class="prop" d="M235 188 h36" stroke="#5dd9d5" stroke-width="7"/>
+  </g>
+
+  <!-- F2 -->
+  <g transform="translate(830 100)">
+    <rect class="panel" x="0" y="0" width="330" height="250"/>
+    <text class="label" x="14" y="28">F2 upper gantry</text>
+    <rect class="room" x="85" y="48" width="160" height="62"/>
+    <rect class="room" x="82" y="178" width="166" height="52"/>
+    <circle class="core" cx="165" cy="145" r="54"/>
+    <circle class="shaft" cx="165" cy="145" r="34"/>
+    <path class="cat" d="M55 140 H275 M165 80 V215" />
+    <path class="cat" d="M55 140 H275 M165 80 V215" fill="none"/>
+    <text class="tiny" x="112" y="84">observation</text>
+    <text class="tiny" x="112" y="209">blueprint nook</text>
+    <circle class="prop" cx="224" cy="83" r="8"/>
+    <rect class="goop" x="134" y="204" width="60" height="8" rx="4"/>
+  </g>
+
+  <!-- Side section -->
+  <g transform="translate(145 430)">
+    <rect class="panel" x="0" y="0" width="910" height="250"/>
+    <text class="label" x="14" y="30">Side section</text>
+    <line x1="80" y1="190" x2="830" y2="190" stroke="#423d31" stroke-width="3"/>
+    <line x1="80" y1="120" x2="830" y2="120" stroke="#423d31" stroke-width="3"/>
+    <line x1="80" y1="55" x2="830" y2="55" stroke="#423d31" stroke-width="3"/>
+    <text class="small" x="30" y="195">F0 y=0</text>
+    <text class="small" x="30" y="125">F1 y=4</text>
+    <text class="small" x="30" y="60">F2 y=8</text>
+    <rect class="room" x="110" y="165" width="190" height="26"/>
+    <rect class="room" x="610" y="165" width="190" height="26"/>
+    <rect class="cat" x="145" y="105" width="620" height="22"/>
+    <rect class="cat" x="230" y="42" width="450" height="22"/>
+    <rect class="core" x="405" y="35" width="100" height="156" rx="28"/>
+    <rect class="shaft" x="430" y="48" width="50" height="132" rx="18"/>
+    <path class="arrow" d="M455 178 V128"/>
+    <path class="arrow" d="M455 108 V64"/>
+    <path class="arrow" d="M615 64 C715 84 750 124 720 170"/>
+    <text class="small" x="385" y="218">central lift / reactor cylinder</text>
+    <text class="small" x="620" y="92">drop chute / slide route</text>
+  </g>
+</svg>

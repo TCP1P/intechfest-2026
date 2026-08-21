@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="Project">
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Rythme synchronized Crown arena, built from osu!lazer.</Description>
+    <AssemblyName>Rythme</AssemblyName>
+    <AssemblyTitle>Rythme</AssemblyTitle>
+    <Title>Rythme</Title>
+    <Product>Rythme Crown Arena</Product>
+    <ApplicationIcon>rythme.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0</FileVersion>
+    <DefineConstants Condition="'$(Configuration)' == 'Release'">$(DefineConstants);RYTHME_SIGNED_RELEASE</DefineConstants>
+    <DefineConstants Condition="'$(RythmeStartupSmoke)' == 'true'">$(DefineConstants);RYTHME_STARTUP_SMOKE</DefineConstants>
+    <DefineConstants Condition="'$(RythmeE2ESmoke)' == 'true'">$(DefineConstants);RYTHME_STARTUP_SMOKE;RYTHME_E2E_SMOKE</DefineConstants>
+    <DefineConstants Condition="'$(RythmeUiCapture)' == 'true'">$(DefineConstants);RYTHME_STARTUP_SMOKE;RYTHME_UI_CAPTURE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>osu.Desktop.Program</StartupObject>
+  </PropertyGroup>
+  <PropertyGroup Label="Release packaging" Condition="'$(Configuration)' == 'Release'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\osu.Game.Tournament\osu.Game.Tournament.csproj" />
+    <ProjectReference Include="..\osu.Game\osu.Game.csproj" />
+    <ProjectReference Include="..\osu.Game.Rulesets.Osu\osu.Game.Rulesets.Osu.csproj" />
+    <ProjectReference Include="..\osu.Game.Rulesets.Catch\osu.Game.Rulesets.Catch.csproj" />
+    <ProjectReference Include="..\osu.Game.Rulesets.Mania\osu.Game.Rulesets.Mania.csproj" />
+    <ProjectReference Include="..\osu.Game.Rulesets.Taiko\osu.Game.Rulesets.Taiko.csproj" />
+  </ItemGroup>
+  <ItemGroup Label="Package References">
+    <PackageReference Include="System.IO.Packaging" Version="10.0.9" />
+    <PackageReference Include="DiscordRichPresence" Version="1.5.0.51" />
+    <PackageReference Include="Velopack" Version="0.0.1298" />
+  </ItemGroup>
+  <ItemGroup Label="Resources">
+    <EmbeddedResource Include="rythme.ico" />
+    <EmbeddedResource Include="Rythme\pool.json" LogicalName="Rythme.pool.json" />
+  </ItemGroup>
+  <ItemGroup Label="Native policy">
+    <Content Include="Rythme\Native\rythme_native.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="false">
+      <TargetPath>rythme_native.dll</TargetPath>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Label="Windows Icons">
+    <Content Include="rythme.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Label="Runtime hardening">
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation" Value="false" />
+  </ItemGroup>
+</Project>

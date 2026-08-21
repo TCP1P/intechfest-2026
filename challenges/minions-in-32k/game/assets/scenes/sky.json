@@ -1,0 +1,21 @@
+{
+  "name": "sky",
+  "bounds": {
+    "min": [
+      -130.0,
+      0.0,
+      -110.0
+    ],
+    "max": [
+      130.0,
+      90.0,
+      110.0
+    ]
+  },
+  "walls": [],
+  "jump_pads": [],
+  "powerups": [],
+  "spawn_points": [],
+  "elevators": [],
+  "props": []
+}

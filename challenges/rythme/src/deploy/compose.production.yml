@@ -1,0 +1,197 @@
+services:
+  coordinator:
+    image: "${RYTHME_IMAGE:?immutable coordinator image digest is required}"
+    container_name: rsctf-rythme-coordinator
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      RYTHME_LOCAL_AUTH: "false"
+      RYTHME_BEATMAP_PROXY: "false"
+      RYTHME_ENROLLMENT_DURATION: 60s
+      RYTHME_READY_DURATION: 30s
+      RYTHME_SUBMISSION_DURATION: 12s
+      RYTHME_RESULTS_DURATION: 20s
+      RYTHME_CROWN_THRESHOLD: "2100000"
+      RYTHME_RAW_SCORE_FLOOR: "700000"
+      RYTHME_BEATMAP_DIR: /app/beatmaps
+      RYTHME_STATE_PATH: /var/lib/rythme/arena.json
+      RSCTF_BASE_URL: http://gateway:8080
+      RSCTF_GAME_ID: "${RSCTF_GAME_ID:?active Rythme game is required}"
+      RSCTF_CHALLENGE_ID: "${RSCTF_CHALLENGE_ID:?active Rythme challenge is required}"
+    volumes:
+      - type: volume
+        source: arena-state
+        target: /var/lib/rythme
+      - type: bind
+        source: "${RYTHME_PUBLIC_BEATMAP_DIR:?verified public beatmap cache is required}"
+        target: /app/beatmaps
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=8m
+    mem_limit: 512m
+    cpus: 2
+    pids_limit: 512
+    stop_grace_period: 8s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "/app/rythme-server", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 3s
+    networks:
+      - backend
+
+  gateway:
+    image: nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    container_name: rsctf-rythme-gateway
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    environment:
+      RYTHME_BACKEND_SUBNET: "${RYTHME_BACKEND_SUBNET:-172.31.224.0/28}"
+      RSCTF_PUBLIC_HOST: "${RSCTF_PUBLIC_HOST:-tcp.1pc.tf}"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: "${RYTHME_PUBLIC_BEATMAP_DIR:?verified public beatmap cache is required}"
+        target: /srv/beatmaps
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./gateway.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:rw,nosuid,nodev,noexec,size=1m
+      - /tmp:rw,nosuid,nodev,noexec,size=1m
+      - /var/cache/nginx:rw,nosuid,nodev,noexec,size=16m
+      - /var/run:rw,nosuid,nodev,noexec,size=1m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          count=0;
+          for archive in /srv/beatmaps/*.osz; do
+            test -r "$$archive" && test -s "$$archive" || exit 1;
+            count=$$((count + 1));
+          done;
+          test "$$count" -eq 21 &&
+          wget -qO- http://127.0.0.1:8080/healthz
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 3s
+    networks:
+      - backend
+      - rsctf
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "${TRAEFIK_NETWORK:-traefik}"
+      traefik.http.routers.rythme.rule: "Host(`${RYTHME_HOSTNAME:?public Rythme hostname is required}`)"
+      traefik.http.routers.rythme.entrypoints: websecure
+      traefik.http.routers.rythme.tls.certresolver: letsencrypt
+      traefik.http.routers.rythme.service: rythme
+      traefik.http.routers.rythme-session.rule: "Host(`${RYTHME_HOSTNAME}`) && PathPrefix(`/api/v2/session/`)"
+      traefik.http.routers.rythme-session.priority: "100"
+      traefik.http.routers.rythme-session.entrypoints: websecure
+      traefik.http.routers.rythme-session.tls.certresolver: letsencrypt
+      traefik.http.routers.rythme-session.middlewares: rythme-session-limit
+      traefik.http.routers.rythme-session.service: rythme
+      traefik.http.middlewares.rythme-session-limit.ratelimit.average: "2"
+      traefik.http.middlewares.rythme-session-limit.ratelimit.burst: "10"
+      traefik.http.middlewares.rythme-session-limit.ratelimit.period: 1s
+      traefik.http.services.rythme.loadbalancer.server.port: "8080"
+      traefik.http.services.rythme.loadbalancer.healthcheck.path: /healthz
+      traefik.http.services.rythme.loadbalancer.healthcheck.interval: 2s
+      traefik.http.services.rythme.loadbalancer.healthcheck.timeout: 1s
+
+  observer:
+    image: python@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0
+    container_name: rsctf-rythme-observer
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["python", "/app/observer.py"]
+    environment:
+      RSCTF_OBSERVER_SECRET_FILE: /run/secrets/observer
+      RSCTF_GAME_ID: "${RSCTF_GAME_ID:?active Rythme game is required}"
+      RSCTF_CHALLENGE_ID: "${RSCTF_CHALLENGE_ID:?active Rythme challenge is required}"
+      RSCTF_URL: http://rsctf:8080
+      RYTHME_ARENA_URL: http://coordinator:1337
+    volumes:
+      - type: volume
+        source: observer-secret
+        target: /run/secrets
+        read_only: true
+      - type: bind
+        source: ./observer.py
+        target: /app/observer.py
+        read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=8m
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os,time;
+          age=time.time()-os.path.getmtime('/tmp/rythme-observer-heartbeat');
+          assert -2 <= age < 15
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - backend
+      - rsctf
+
+volumes:
+  arena-state:
+    external: true
+    name: "${RYTHME_STATE_VOLUME:-rsctf-rythme-arena-state}"
+  observer-secret:
+    external: true
+    name: "${RYTHME_OBSERVER_SECRET_VOLUME:-rsctf-rythme-observer-secret}"
+
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: "${RYTHME_BACKEND_SUBNET:-172.31.224.0/28}"
+  rsctf:
+    external: true
+    name: "${RSCTF_NETWORK:-rsctf_default}"
+  traefik:
+    external: true
+    name: "${TRAEFIK_NETWORK:-traefik}"

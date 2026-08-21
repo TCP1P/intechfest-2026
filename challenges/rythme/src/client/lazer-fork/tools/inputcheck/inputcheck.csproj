@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../Rythme.Desktop/ArenaProtocolException.cs" Link="ArenaProtocolException.cs" />
+    <Compile Include="../../../Rythme.Desktop/BackgroundFailure.cs" Link="BackgroundFailure.cs" />
+    <Compile Include="../../../Rythme.Desktop/CueDeliveryPolicy.cs" Link="CueDeliveryPolicy.cs" />
+    <Compile Include="../../../Rythme.Desktop/InputSender.cs" Link="InputSender.cs" />
+    <Compile Include="../../../Rythme.Desktop/RythmeCancellationLifetime.cs" Link="RythmeCancellationLifetime.cs" />
+  </ItemGroup>
+</Project>

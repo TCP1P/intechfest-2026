@@ -1,0 +1,8 @@
+# Challenge metadata: the source of truth for this challenge's platform listing.
+# Rythme is a flagless Leaderboard KOTH; every finalized heat is scored by RSCTF.
+name: Rythme
+author: dimasma0305
+difficulty: Hard
+category: reversing
+description: Rythme is Syncore's live Crown qualifier, where every crew receives the same surprise track, discipline, and synchronized start. The final intake is closing, the current owner is banking bracket points, and settlement is minutes away. You are an external integrity crew. Take the Crown before the cutoff to control the qualifier, or miss it and let the incumbent lock in another payout.
+objective: Complete a fresh server-timed heat, maximize the official score with a subverted client, and take the recurring Crown.

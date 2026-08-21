@@ -1,0 +1,180 @@
+diff --git a/osu.Game/Beatmaps/LocalCachedBeatmapMetadataSource.cs b/osu.Game/Beatmaps/LocalCachedBeatmapMetadataSource.cs
+index 18bdc44..94928cf 100644
+--- a/osu.Game/Beatmaps/LocalCachedBeatmapMetadataSource.cs
++++ b/osu.Game/Beatmaps/LocalCachedBeatmapMetadataSource.cs
+@@ -51,6 +51,11 @@ public LocalCachedBeatmapMetadataSource(Storage storage)
+ 
+         private bool shouldFetchCache()
+         {
++            // Rythme is an isolated CTF client. It must never fetch osu!'s
++            // public metadata database behind the arena operator's back.
++            if (Environment.GetEnvironmentVariable("RYTHME_DISABLE_OFFICIAL_SERVICES") == "1")
++                return false;
++
+             // avoid downloading / using cache for unit tests.
+             if (DebugUtils.IsNUnitRunning)
+                 return false;
+@@ -170,6 +175,9 @@ private void tryPurgeCache()
+         /// </summary>
+         public Task FetchCache()
+         {
++            if (Environment.GetEnvironmentVariable("RYTHME_DISABLE_OFFICIAL_SERVICES") == "1")
++                return Task.CompletedTask;
++
+             // This is guarded in the local call, but also included as a safety
+             // for any incorrect public usage.
+             if (DebugUtils.IsNUnitRunning)
+diff --git a/osu.Game/Users/Drawables/DrawableAvatar.cs b/osu.Game/Users/Drawables/DrawableAvatar.cs
+index bd09b95..abb1cab 100644
+--- a/osu.Game/Users/Drawables/DrawableAvatar.cs
++++ b/osu.Game/Users/Drawables/DrawableAvatar.cs
+@@ -33,7 +33,8 @@ public DrawableAvatar(IUser user = null)
+         [BackgroundDependencyLoader]
+         private void load(LargeTextureStore textures)
+         {
+-            if (user != null && user.OnlineID > 1)
++            if (System.Environment.GetEnvironmentVariable("RYTHME_DISABLE_OFFICIAL_SERVICES") != "1"
++                && user != null && user.OnlineID > 1)
+                 // TODO: The fallback here should not need to exist. Users should be looked up and populated via UserLookupCache or otherwise
+                 // in remaining cases where this is required (chat tabs, local leaderboard), at which point this should be removed.
+                 Texture = textures.Get((user as APIUser)?.AvatarUrl ?? $@"https://a.ppy.sh/{user.OnlineID}");
+diff --git a/osu.Game/Screens/Loader.cs b/osu.Game/Screens/Loader.cs
+index d615cf4..2af395d 100644
+--- a/osu.Game/Screens/Loader.cs
++++ b/osu.Game/Screens/Loader.cs
+@@ -37,6 +37,8 @@ namespace osu.Game.Screens
+ 
+         protected virtual OsuScreen CreateLoadableScreen() => getIntroSequence();
+ 
++        protected virtual MainMenu CreateMainMenu() => new MainMenu();
++
+         private IntroScreen getIntroSequence()
+         {
+             // Headless tests run too fast to load non-circles intros correctly.
+@@ -59,7 +61,7 @@ namespace osu.Game.Screens
+                     return new IntroTriangles(createMainMenu);
+             }
+ 
+-            MainMenu createMainMenu() => new MainMenu();
++            MainMenu createMainMenu() => CreateMainMenu();
+         }
+ 
+         protected virtual ShaderPrecompiler CreateShaderPrecompiler() => new ShaderPrecompiler();
+diff --git a/osu.Game/Screens/Menu/ButtonSystem.cs b/osu.Game/Screens/Menu/ButtonSystem.cs
+index 51ac7ed..643cdef 100644
+--- a/osu.Game/Screens/Menu/ButtonSystem.cs
++++ b/osu.Game/Screens/Menu/ButtonSystem.cs
+@@ -47,6 +47,7 @@ namespace osu.Game.Screens.Menu
+         public Action? OnSolo;
+         public Action? OnSettings;
+         public Action? OnMultiplayer;
++        public Action? OnRythme;
+         public Action? OnQuickPlay;
+         public Action? OnRankedPlay;
+         public Action? OnPlaylists;
+@@ -158,10 +159,11 @@ namespace osu.Game.Screens.Menu
+             buttonsPlay.Add(new DailyChallengeButton(@"button-daily-select", new Color4(94, 63, 186, 255), onDailyChallenge, Key.D));
+             buttonsPlay.ForEach(b => b.VisibleState = ButtonSystemState.Play);
+ 
+-            buttonsMulti.Add(new MainMenuButton(ButtonSystemStrings.Lounge, @"button-default-select", FontAwesome.Solid.Couch, new Color4(94, 63, 186, 255), onMultiplayer, Key.L, Key.M)
++            buttonsMulti.Add(new MainMenuButton("crown arena", @"button-daily-select", FontAwesome.Solid.Crown, new Color4(238, 51, 153, 255), (_, _) => OnRythme?.Invoke(), Key.C)
+             {
+                 Padding = new MarginPadding { Left = WEDGE_WIDTH }
+             });
++            buttonsMulti.Add(new MainMenuButton(ButtonSystemStrings.Lounge, @"button-default-select", FontAwesome.Solid.Couch, new Color4(94, 63, 186, 255), onMultiplayer, Key.L, Key.M));
+             buttonsMulti.Add(new MainMenuButton(ButtonSystemStrings.RankedPlay, @"button-daily-select", FontAwesome.Solid.Crown, new Color4(94, 63, 186, 255), onRankedPlay, Key.R));
+             // disabled for now to give ranked play space.
+             // buttonsMulti.Add(new MainMenuButton(ButtonSystemStrings.QuickPlay, @"button-daily-select", FontAwesome.Solid.Bolt, new Color4(94, 63, 186, 255), onQuickPlay, Key.Q));
+diff --git a/osu.Game/Overlays/IOverlayManager.cs b/osu.Game/Overlays/IOverlayManager.cs
+index 6e8571c..02b2a9a 100644
+--- a/osu.Game/Overlays/IOverlayManager.cs
++++ b/osu.Game/Overlays/IOverlayManager.cs
+@@ -10,7 +10,7 @@
+ namespace osu.Game.Overlays
+ {
+     [Cached]
+-    internal interface IOverlayManager
++    public interface IOverlayManager
+     {
+         /// <summary>
+         /// Whether overlays should be able to be opened game-wide. Value is sourced from the current active screen.
+diff --git a/osu.Game/Screens/Menu/OnlineMenuBanner.cs b/osu.Game/Screens/Menu/OnlineMenuBanner.cs
+index c94a438..f396135 100644
+--- a/osu.Game/Screens/Menu/OnlineMenuBanner.cs
++++ b/osu.Game/Screens/Menu/OnlineMenuBanner.cs
+@@ -66,7 +66,8 @@ protected override void LoadComplete()
+ 
+         private void checkForUpdates()
+         {
+-            if (!FetchOnlineContent)
++            if (!FetchOnlineContent ||
++                Environment.GetEnvironmentVariable("RYTHME_DISABLE_OFFICIAL_SERVICES") == "1")
+                 return;
+ 
+             var request = new GetMenuContentRequest();
+diff --git a/osu.Game/Screens/Play/Player.cs b/osu.Game/Screens/Play/Player.cs
+--- a/osu.Game/Screens/Play/Player.cs
++++ b/osu.Game/Screens/Play/Player.cs
+@@ -97,6 +97,12 @@ namespace osu.Game.Screens.Play
+         /// </summary>
+         protected virtual bool PauseOnFocusLost => true;
+ 
++        /// <summary>
++        /// Whether a completed score should wait for the beatmap storyboard's
++        /// reported end before progressing to results.
++        /// </summary>
++        protected virtual bool WaitForStoryboardAtResults => true;
++
+         public Action<bool> PrepareLoaderForRestart;
+ 
+         private bool isRestarting;
+@@ -836,8 +842,9 @@ namespace osu.Game.Screens.Play
+             // is no chance that a user could return to the (already completed) Player instance from a child screen.
+             ValidForResume = false;
+ 
+-            bool storyboardStillRunning = DimmableStoryboard.ContentDisplayed && !DimmableStoryboard.HasStoryboardEnded.Value;
++            bool storyboardStillRunning = WaitForStoryboardAtResults &&
++                                          DimmableStoryboard.ContentDisplayed && !DimmableStoryboard.HasStoryboardEnded.Value;
+ 
+             // If the current beatmap has a storyboard, this method will be called again on storyboard completion.
+             // Alternatively, the user may press the outro skip button, forcing immediate display of the results screen.
+             if (storyboardStillRunning)
+diff --git a/osu.Game.Tests/Visual/Gameplay/TestSceneReplayRecorder.cs b/osu.Game.Tests/Visual/Gameplay/TestSceneReplayRecorder.cs
+index 8ada550174..4eb6f50384 100644
+--- a/osu.Game.Tests/Visual/Gameplay/TestSceneReplayRecorder.cs
++++ b/osu.Game.Tests/Visual/Gameplay/TestSceneReplayRecorder.cs
+@@ -74,6 +74,16 @@ public void TestBasic()
+             AddUntilStep("position matches", () => playbackManager.ChildrenOfType<Box>().First().Position == recordingManager.ChildrenOfType<Box>().First().Position);
+         }
+ 
++        [Test]
++        public void TestImportantFrameBeforeRecorderLoadIsIgnored()
++        {
++            var score = new Score();
++            var unloadedRecorder = new TestReplayRecorder(score);
++
++            Assert.DoesNotThrow(() => unloadedRecorder.RecordFrame(true));
++            Assert.That(score.Replay.Frames, Is.Empty);
++        }
++
+         [Test]
+         [Explicit("Making this test work in a headless context is high effort due to rate adjustment requirements not aligning with the global fast clock. StopwatchClock usage would need to be replace with a rate adjusting clock that still reads from the parent clock. High effort for a test which likely will not see any changes to covered code for some years.")]
+         public void TestSlowClockStillRecordsFramesInRealtime()
+diff --git a/osu.Game/Rulesets/UI/ReplayRecorder.cs b/osu.Game/Rulesets/UI/ReplayRecorder.cs
+index 8829c15a21..55755e599b 100644
+--- a/osu.Game/Rulesets/UI/ReplayRecorder.cs
++++ b/osu.Game/Rulesets/UI/ReplayRecorder.cs
+@@ -75,6 +75,13 @@ public void OnReleased(KeyBindingReleaseEvent<T> e)
+ 
+         public override void RecordFrame(bool important)
+         {
++            // SetRecordTarget() can attach a recorder from Player.LoadComplete().
++            // If a late-starting player immediately applies an already-missed
++            // judgement, the important frame arrives before this recorder's own
++            // LoadComplete() has resolved its containing input manager.
++            if (inputManager == null)
++                return;
++
+             var last = target.Replay.Frames.LastOrDefault();
+ 
+             if (!important && last != null && Time.Current - last.Time < (1000d / RecordFrameRate) * Clock.Rate)

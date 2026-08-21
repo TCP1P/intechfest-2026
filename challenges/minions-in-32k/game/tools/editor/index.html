@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>minions-in-16k — arena editor</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            minions-in-16k <span class="sub">arena editor</span>
+        </div>
+        <div class="toolbar">
+            <button id="btn-reload" title="Re-run cargo dump_arena and reload">⟳ reload</button>
+            <button id="btn-reset-cam" title="Reset camera">⌂ reset cam</button>
+            <label><input id="toggle-grid" type="checkbox" checked> grid</label>
+            <label><input id="toggle-spawns" type="checkbox" checked> spawns</label>
+            <label><input id="toggle-pads" type="checkbox" checked> pads</label>
+            <label><input id="toggle-labels" type="checkbox"> labels</label>
+            <label><select id="view-mode">
+                <option value="solid">solid</option>
+                <option value="wire">wireframe</option>
+                <option value="x-ray">x-ray</option>
+            </select></label>
+            <div class="spacer"></div>
+            <span id="status" class="status">loading…</span>
+        </div>
+    </header>
+    <div id="app">
+        <div id="canvas-container"></div>
+        <aside id="inspector">
+            <h2>inspector</h2>
+            <div id="inspector-empty" class="empty">
+                click an object in the scene
+            </div>
+            <div id="inspector-body" hidden>
+                <div class="row"><span class="lbl">kind</span><span id="i-kind"></span></div>
+                <div class="row"><span class="lbl">zone</span><span id="i-zone"></span></div>
+                <div class="row"><span class="lbl">index</span><span id="i-index"></span></div>
+                <h3>center</h3>
+                <div class="row"><span class="lbl">x</span><input id="i-cx" type="number" step="0.1"></div>
+                <div class="row"><span class="lbl">y</span><input id="i-cy" type="number" step="0.1"></div>
+                <div class="row"><span class="lbl">z</span><input id="i-cz" type="number" step="0.1"></div>
+                <h3>size</h3>
+                <div class="row"><span class="lbl">x</span><input id="i-sx" type="number" step="0.1" min="0.01"></div>
+                <div class="row"><span class="lbl">y</span><input id="i-sy" type="number" step="0.1" min="0.01"></div>
+                <div class="row"><span class="lbl">z</span><input id="i-sz" type="number" step="0.1" min="0.01"></div>
+                <h3 id="pad-header" hidden>jump pad</h3>
+                <div class="row" id="pad-radius-row" hidden>
+                    <span class="lbl">radius</span><input id="i-pad-r" type="number" step="0.1" min="0.1">
+                </div>
+                <div class="row" id="pad-vel-row" hidden>
+                    <span class="lbl">vel_y</span><input id="i-pad-v" type="number" step="1">
+                </div>
+                <div class="actions">
+                    <button id="btn-delete" class="danger">delete</button>
+                    <button id="btn-duplicate">duplicate</button>
+                </div>
+            </div>
+            <h2 id="stats-header">stats</h2>
+            <div id="stats" class="stats">—</div>
+            <h2>save</h2>
+            <div class="save-note">
+                Edits stay in memory. Click <b>download</b> to grab a JSON the
+                server can apply, or <b>apply</b> to POST it back to
+                <code>tools/editor/edits.json</code>.
+            </div>
+            <div class="actions">
+                <button id="btn-download">↓ download json</button>
+                <button id="btn-apply" class="primary">⇪ apply</button>
+            </div>
+        </aside>
+    </div>
+    <script type="module" src="editor.js"></script>
+</body>
+</html>

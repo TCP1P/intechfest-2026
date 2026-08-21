@@ -1,0 +1,241 @@
+{
+  "schema": "rythme-supplied-song-seeds-v1",
+  "received_at": "2026-07-31",
+  "source": "organizer-supplied list",
+  "selection_policy": "allowlist-only",
+  "tracks": [
+    {
+      "index": 1,
+      "title": "言の刃",
+      "artist": "Rokudenashi",
+      "album": "溜息",
+      "date_added": "2026-06-10",
+      "duration": "3:24"
+    },
+    {
+      "index": 2,
+      "title": "tada koe hitotsu",
+      "artist": "mihoyana",
+      "album": "tada koe hitotsu",
+      "date_added": "2026-06-09",
+      "duration": "2:39"
+    },
+    {
+      "index": 3,
+      "title": "love story (lofi)",
+      "artist": "nicotine",
+      "album": "love story (lofi)",
+      "date_added": "2026-06-09",
+      "duration": "2:01"
+    },
+    {
+      "index": 4,
+      "title": "Love Story (Taylor’s Version)",
+      "artist": "Taylor Swift",
+      "album": "Love Story (Taylor’s Version)",
+      "date_added": "2026-06-09",
+      "duration": "3:55"
+    },
+    {
+      "index": 5,
+      "title": "MONTAGEM HIKARI",
+      "artist": "BellyJay",
+      "album": "MONTAGEM HIKARI",
+      "date_added": "2026-03-25",
+      "duration": "1:29"
+    },
+    {
+      "index": 6,
+      "title": "Seventeen",
+      "artist": "JKT48",
+      "album": "Mahagita Vol. 2",
+      "date_added": "2025-12-18",
+      "duration": "3:45"
+    },
+    {
+      "index": 7,
+      "title": "MONTAGEM XONADA",
+      "artist": "MXZI, Dj Samir, DJ Javi26",
+      "album": "MONTAGEM XONADA",
+      "date_added": "2025-11-06",
+      "duration": "1:15"
+    },
+    {
+      "index": 8,
+      "title": "MONTAGEM RUGADA",
+      "artist": "cape, JXNDRO, Sayfalse",
+      "album": "MONTAGEM RUGADA",
+      "date_added": "2025-11-04",
+      "duration": "1:32"
+    },
+    {
+      "index": 9,
+      "title": "kawaikute gomen",
+      "artist": "mihoyana",
+      "album": "kawaikute gomen",
+      "date_added": "2025-11-04",
+      "duration": "3:36"
+    },
+    {
+      "index": 10,
+      "title": "秋絵 - Acoustic Lemon Piano Version",
+      "artist": "Akie",
+      "album": "秋絵 (Acoustic Lemon Piano Version)",
+      "date_added": "2025-09-10",
+      "duration": "3:35"
+    },
+    {
+      "index": 11,
+      "title": "spring thief",
+      "artist": "mihoyana",
+      "album": "spring thief",
+      "date_added": "2025-09-10",
+      "duration": "3:07"
+    },
+    {
+      "index": 12,
+      "title": "Dancing Through Fantasies - From \"Wuthering Waves\"",
+      "artist": "Lime",
+      "album": "Dancing Through Fantasies (From \"Wuthering Waves\")",
+      "date_added": "2025-09-10",
+      "duration": "3:16"
+    },
+    {
+      "index": 13,
+      "title": "Odoriko",
+      "artist": "Xaela",
+      "album": "Odoriko",
+      "date_added": "2025-08-01",
+      "duration": "3:51"
+    },
+    {
+      "index": 14,
+      "title": "Comedy / Spy x Family ( 歌ってみた )",
+      "artist": "早稻叽",
+      "album": "Comedy / Spy x Family ( 歌ってみた )",
+      "date_added": "2025-08-01",
+      "duration": "3:49"
+    },
+    {
+      "index": 15,
+      "title": "回想部屋",
+      "artist": "",
+      "album": "",
+      "date_added": "2025-07-18",
+      "duration": "1:53",
+      "local_only": true
+    },
+    {
+      "index": 16,
+      "title": "tiny light (toilet-bound hanako-kun lofi)",
+      "artist": "luvbyrd",
+      "album": "tiny light (toilet-bound hanako-kun lofi)",
+      "date_added": "2025-06-28",
+      "duration": "1:31"
+    },
+    {
+      "index": 17,
+      "title": "Shelter",
+      "artist": "Porter Robinson, Madeon",
+      "album": "Shelter",
+      "date_added": "2025-06-24",
+      "duration": "3:38"
+    },
+    {
+      "index": 18,
+      "title": "アメヲマツ、",
+      "artist": "美波",
+      "album": "アメヲマツ、",
+      "date_added": "2025-06-19",
+      "duration": "4:54"
+    },
+    {
+      "index": 19,
+      "title": "Une vie à rêver",
+      "artist": "Lorien Testard, Alice Duport-Percier, Axelle Verner",
+      "album": "Clair Obscur: Expedition 33 (Original Soundtrack)",
+      "date_added": "2025-05-16",
+      "duration": "11:00"
+    },
+    {
+      "index": 20,
+      "title": "Clair-Obscur",
+      "artist": "Lorien Testard, Alice Duport-Percier",
+      "album": "Clair Obscur: Expedition 33 (Original Soundtrack)",
+      "date_added": "2025-05-16",
+      "duration": "3:39"
+    },
+    {
+      "index": 21,
+      "title": "Une vie à t'aimer",
+      "artist": "Lorien Testard, Alice Duport-Percier, Victor Borba",
+      "album": "Clair Obscur: Expedition 33 (Original Soundtrack)",
+      "date_added": "2025-05-16",
+      "duration": "11:00"
+    },
+    {
+      "index": 22,
+      "title": "STYX HELIX",
+      "artist": "MYTH & ROID",
+      "album": "eYe's",
+      "date_added": "2025-05-14",
+      "duration": "4:49"
+    },
+    {
+      "index": 23,
+      "title": "Daisy Crown",
+      "artist": "Empty old City, Wuthering Waves",
+      "album": "Daisy Crown",
+      "date_added": "2025-05-06",
+      "duration": "3:16"
+    },
+    {
+      "index": 24,
+      "title": "夜明けと蛍",
+      "artist": "麻婆豆腐",
+      "album": "夜明けと蛍",
+      "date_added": "2025-05-06",
+      "duration": "4:39"
+    },
+    {
+      "index": 25,
+      "title": "Chains of Oath, Echoes of Promise",
+      "artist": "Wuthering Waves, jixwang, VISION SOUND, Thena A",
+      "album": "Duplicitous Tower(Original Game Soundtrack)",
+      "date_added": "2025-05-06",
+      "duration": "3:28"
+    },
+    {
+      "index": 26,
+      "title": "With Glory I Shall Fall",
+      "artist": "Wuthering Waves, jixwang, VISION SOUND",
+      "album": "Duplicitous Tower(Original Game Soundtrack)",
+      "date_added": "2025-05-06",
+      "duration": "3:52"
+    },
+    {
+      "index": 27,
+      "title": "Somewhere Only We Know",
+      "artist": "Gustixa, rhianne",
+      "album": "Somewhere Only We Know",
+      "date_added": "2025-05-05",
+      "duration": "3:04"
+    },
+    {
+      "index": 28,
+      "title": "Refuge of the Survivors",
+      "artist": "Wuthering Waves, YUE.STEVEN",
+      "album": "Into the Depths",
+      "date_added": "2025-02-21",
+      "duration": "1:22"
+    },
+    {
+      "index": 29,
+      "title": "Astrum Unicum / Stars, Rebirth, and You",
+      "artist": "Wuthering Waves, YUE.STEVEN",
+      "album": "Into the Depths",
+      "date_added": "2025-02-16",
+      "duration": "2:30"
+    }
+  ]
+}
