@@ -8,9 +8,19 @@ umask 077
 
 database_container=rsctf-db-1
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-compose_file=${MINIONS_COMPOSE_FILE:-$script_dir/compose.production.yml}
+if [ -n "${MINIONS_COMPOSE_FILE:-}" ]; then
+  compose_file=$MINIONS_COMPOSE_FILE
+elif [ -r "$script_dir/compose.production.yml" ]; then
+  compose_file=$script_dir/compose.production.yml
+else
+  compose_file=$script_dir/compose.yml
+fi
 active_event=${MINIONS_ACTIVE_EVENT:-$script_dir/active-event.env}
 
+[ -r "$compose_file" ] || {
+  printf 'Minions reconcile: Compose configuration is unavailable\n' >&2
+  exit 1
+}
 [ -r "$active_event" ] || {
   printf 'Minions reconcile: active event configuration is unavailable\n' >&2
   exit 1
