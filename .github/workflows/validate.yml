@@ -1,0 +1,162 @@
+name: Validate challenge repository
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-challenges-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  manifests:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      container_matrix: ${{ steps.container_matrix.outputs.matrix }}
+      container_count: ${{ steps.container_matrix.outputs.count }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          lfs: true
+
+      - name: Validate warmup manifests with rsctf
+        id: warmup
+        uses: dimasma0305/rsctf@main
+        with:
+          path: events/warmup
+
+      - name: Validate main-event manifests with rsctf
+        id: main_event
+        uses: dimasma0305/rsctf@main
+        with:
+          path: events/main-event
+
+      - name: Combine dynamic container matrices
+        id: container_matrix
+        shell: bash
+        env:
+          WARMUP_MATRIX: ${{ steps.warmup.outputs.container_matrix }}
+          MAIN_EVENT_MATRIX: ${{ steps.main_event.outputs.container_matrix }}
+        run: |
+          set -euo pipefail
+          matrix="$(jq -cn \
+            --argjson warmup "$WARMUP_MATRIX" \
+            --argjson main_event "$MAIN_EVENT_MATRIX" \
+            '{include: (
+              ($warmup.include | map(
+                .context = ("events/warmup/" + .context)
+                | .name = ("warmup/" + .name)
+                | .tag = ("warmup-" + .tag)
+              ))
+              +
+              ($main_event.include | map(
+                .context = ("events/main-event/" + .context)
+                | .name = ("main-event/" + .name)
+                | .tag = ("main-event-" + .tag)
+              ))
+            )}')"
+          count="$(jq -r '.include | length' <<< "$matrix")"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'count=%s\n' "$count" >> "$GITHUB_OUTPUT"
+
+      - name: Verify handout identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r sum_file; do
+            package="$(dirname "$(dirname "$sum_file")")"
+            (cd "$package/dist" && sha256sum --check ../solution/handout.sha256)
+          done < <(find events -path '*/solution/handout.sha256' -type f -print | sort)
+
+      - name: Exercise checkers and compile solutions
+        run: |
+          make checkers
+          make solutions
+
+  containers:
+    name: Build ${{ matrix.name }}
+    needs: manifests
+    if: needs.manifests.outputs.container_count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.manifests.outputs.container_matrix) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build without pushing
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: intechfest-2026/${{ matrix.tag }}:ci
+          cache-from: type=gha,scope=${{ matrix.tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
+
+      - name: Verify Docker health
+        if: matrix.kind == 'service'
+        shell: bash
+        env:
+          IMAGE: intechfest-2026/${{ matrix.tag }}:ci
+        run: |
+          set -euo pipefail
+          if [[ "$(docker image inspect "$IMAGE" --format '{{if .Config.Healthcheck}}present{{else}}missing{{end}}')" != present ]]; then
+            echo "::error::Service image $IMAGE does not declare a Docker HEALTHCHECK."
+            exit 1
+          fi
+
+          container_id="$(docker run \
+            --detach \
+            --network none \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges=true \
+            --pids-limit 512 \
+            --memory 768m \
+            --env 'RSCTF_FLAG=rsctf{ci_healthcheck_seed_0000000000000000}' \
+            --env 'REPORT_URL=http://127.0.0.1:9/report' \
+            --env 'RYTHME_STATE_PATH=/tmp/rythme-arena.json' \
+            --env 'RYTHME_BEATMAP_DIR=/tmp/beatmaps' \
+            "$IMAGE")"
+          cleanup() {
+            docker rm --force "$container_id" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for _ in {1..60}; do
+            state="$(docker inspect \
+              --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' \
+              "$container_id")"
+            if [[ "$state" == 'running healthy' ]]; then
+              exit 0
+            fi
+            if [[ "$state" == exited* || "$state" == dead* || "$state" == *' unhealthy' || "$state" == *' missing' ]]; then
+              docker logs "$container_id"
+              echo "::error::Service image $IMAGE failed its Docker health gate: $state"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$container_id"
+          echo "::error::Service image $IMAGE did not become healthy within 60 seconds."
+          exit 1

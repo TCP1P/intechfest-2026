@@ -1,0 +1,7 @@
+.git
+**/target
+game/replays/**
+game/dist
+challenge/**
+*.md
+build-*.sh

@@ -1,0 +1,6 @@
+interface:
+  display_name: "rsctf Challenge Solution"
+  short_description: "Write clear solutions and simple solve.py files"
+  default_prompt: "Use $rsctf-challenge-solution to write or verify this challenge's concise README.md and solve.py."
+policy:
+  allow_implicit_invocation: true

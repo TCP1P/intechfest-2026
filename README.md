@@ -1,121 +1,82 @@
-# INTECHFEST challenge event
+# INTECHFEST 2026 challenge repository
 
-This event contains two flagless, server-authoritative Leaderboard KotH
-challenges for RSCTF: Rythme and Minions in 32K. The checked-in player archives,
-runtime source, production Compose definitions, checkers, and integrity tests are
-the release source of truth.
+This private organizer repository is the rsctf Repository Bindings source for the
+INTECHFEST 2026 warmup and main event. Both event roots start hidden. A repository scan
+must not be treated as permission to make either event public or enable a challenge.
 
-“Private arena” describes the event’s listing and admission policy. It does not
-create one arena per team and does not indicate a development-only deployment.
-Each challenge runs one shared global arena, while RSCTF authenticates each team
-with an event-scoped capability and records private scoring evidence. The event
-can remain hidden for rehearsal and be made discoverable at launch without
-rebuilding either challenge.
+## Events
 
-See [PRODUCTION.md](PRODUCTION.md) for the release contract, deployment topology,
-validation gates, and rollback rules.
+| Event | Root | Current challenges |
+| --- | --- | ---: |
+| Warmup | `events/warmup/` | 0 |
+| Main event | `events/main-event/` | 2 |
 
-## Available Challenges
+The source contains no warmup challenge yet. Add one only when its player contract and
+challenge package are real; do not duplicate a main-event challenge as a placeholder.
 
-| Challenge Name | Category | Difficulty | Writeup Hash |
-|---|---|---|---|
-| Rythme | reversing | Hard | `N/A` |
-| Minions in 32K | game | Hard | `N/A` |
+The main event currently contains:
 
-## Usage
+- `Rythme` — shared API-observed Leaderboard KotH in `Reverse`.
+- `Minions in 32K` — shared API-observed Leaderboard KotH in `PPC`.
 
-### Generate Challenge Templates
+## Layout
 
-```bash
-# Generate all challenge templates
-make generate
-
-# List available challenges
-make list
+```text
+.
+├── .agents/                         # integrated Codex challenge workflows
+├── .github/workflows/validate.yml   # official rsctf validation and dynamic builds
+├── AGENTS.md                        # AI-agent entry point
+├── docs/                            # human documentation and release contracts
+├── events/
+│   ├── warmup/
+│   │   └── .gzevent
+│   └── main-event/
+│       ├── .gzevent
+│       └── challenges/<mode>/<category>/<slug>/
+├── Makefile
+└── README.md
 ```
 
-### Running a Challenge
+Each challenge owns one `challenge.yaml` and only the components it uses:
 
-```bash
-# Navigate to the generated challenge directory
-cd challenges/challenge-slug
-
-# Build and run the challenge
-./build-docker.sh
-
-# Stop the challenge
-./build-docker.sh stop
+```text
+challenge.yaml       # rsctf manifest and player-facing copy
+dist/                # exact player handout
+src/                 # narrow Docker build context
+checker/             # read-only rsctf functional checker
+observer/            # separately deployed trusted referee or bridge
+solution/            # organizer writeup and reference solver
 ```
 
-### Solving a Challenge
+Read [the documentation index](docs/README.md) and
+[the multi-event authoring contract](docs/authoring-contract.md) before adding or moving
+files. Anyone with Git read access can see `solution/`; keep repository membership narrow
+until the event is over.
 
-```bash
-# Navigate to the challenge directory
-cd challenges/challenge-slug
+## Local checks
 
-# Run the solver
-python3 htb/solver.py
+Use the official rsctf binary that matches the target deployment:
 
-# Or with custom host/port
-python3 htb/solver.py --host target.com --port 8080
+```sh
+make validate RSCTF=/path/to/rsctf
+make matrix RSCTF=/path/to/rsctf
+make checkers
+make solutions
 ```
 
-## Challenge Structure
+`make validate` and GitHub Actions invoke rsctf directly. This repository intentionally
+contains no local manifest validator or container-discovery script.
 
-Each generated challenge follows HTB's delivered-repo structure:
+## Publishing boundary
 
-```
-challenges/{slug}/
-├── challenge.yml          # Metadata: name/author/difficulty/category/description/objective/flag
-├── README.md               # The writeup: full solution walkthrough (required section order)
-├── Dockerfile               # Container definition (only if the challenge runs in Docker)
-├── build-docker.sh          # Single build/run/stop entrypoint
-├── challenge/               # Files copied into the Docker image
-│   ├── flag.txt              # Challenge flag (generated from challenge.yml)
-│   └── serve_flag.sh         # Flag serving script
-├── src/                     # Source used to build the challenge, if distinct from challenge/
-├── htb/                     # Solver scripts
-│   └── solver.py              # Python solver using pwntools
-├── brainstorm/              # Gitignored author design; optional static or interactive map; never shipped
-├── build-release.sh          # Builds or validates the declared player artifacts
-├── release/                 # exact player files; may be empty for service-only challenges
-├── playtest/                # declared player inputs only; local and gitignored
-└── assets/                  # Additional challenge assets
-```
+- Never commit a live flag, KotH capability, observer secret, admin token, TLS private key,
+  undisclosed internal endpoint, or unredacted secret evidence. Reviewed public player
+  endpoints may appear only in their owning release inputs.
+- Treat `dist/` as player-visible and `solution/` as organizer-only.
+- Keep both events hidden and every imported challenge disabled until the exact revision
+  passes the release checklist, a fresh blind playtest, and hidden staging.
+- Configure the signed API claim source and deploy the trusted observer/bridge separately;
+  no observer secret belongs in a challenge image or Git.
 
-## Configuration
-
-Challenges are configured in `challenges.yml`. Each challenge entry should include:
-
-- `name`: Display name of the challenge
-- `author`: The author's HTB name
-- `difficulty`: Very Easy / Easy / Medium / Hard / Insane
-- `category`: The challenge's category (web, pwn, crypto, reversing, forensics, misc, ...)
-- `description`: The description players see before they spawn the challenge (lore, no technical hints)
-- `objective`: A technical description of the high-level objective
-- `flag`: `'HTB{...}'` (a placeholder is generated if omitted)
-
-## Development
-
-To add a new challenge:
-
-1. Add the challenge configuration to `challenges.yml`
-2. Review the repo-local skills in `.agents/skills/` (Codex) and `.claude/skills/` (Claude Code)
-3. Generate all challenge templates: `make generate`
-4. Inside the generated challenge, use `htb-challenge-brainstorm` to maintain `brainstorm/README.md` and choose a static `brainstorm/architecture.svg` or interactive `brainstorm/visualizer/` when the design benefits from it
-5. For a black-box challenge, use `htb-blackbox-writeup` to write the entire solution from the player's evidence timeline; before each pivotal experiment, show the exact player-visible response field and value that motivates every non-obvious input instead of merely claiming an endpoint reveals it; omit undisclosed source, hidden architecture, privileged production captures, stale image assets, and author-only defaults in linked exploit scripts
-6. Use `htb-challenge-playtest` from the generated challenge to create an audited player-input room from the exact contract; a service-only black-box playtest receives the target and only neutral runner mappings for ordinary player-owned infrastructure, never release source. The directory is not a sandbox, so release-level blind evidence requires a fresh runner with an enforced workspace/network boundary
-7. After a fresh player produces `PLAYTEST-REPORT.md`, use `htb-playtest-review` from the author workspace to classify guessing gaps and unintended shortcuts without leaking hints into the next attempt
-8. Update this README.md with the new challenge in the table
-9. Customize the generated files as needed
-
-`brainstorm/` is spoiler-heavy local design material. It is gitignored and excluded from the Docker build context and every player artifact. A service-only challenge publishes no source handout. `htb generate`, `htb clean`, and `/regenerate` preserve existing challenge-local brainstorm directories.
-The Svelte attack-map starter is bundled with the brainstorming skill and scaffolded only on demand, so challenges that do not need an interactive map stay minimal.
-
-## AI Assistant Support
-
-This template ships with guidance for several editors and agents:
-
-- **Cursor**: rules under `.cursor/rules/`
-- **Codex CLI**: skills under `.agents/skills/`
-- **Claude Code**: `CLAUDE.md` at the repo root and skills under `.claude/skills/`
+Production topology and immutable artifact identities are recorded in
+[docs/production.md](docs/production.md).

@@ -1,0 +1,6 @@
+interface:
+  display_name: "rsctf Challenge Design"
+  short_description: "Design fair, intentional rsctf challenges"
+  default_prompt: "Use $rsctf-challenge-design to turn this challenge idea into a reviewable design contract."
+policy:
+  allow_implicit_invocation: true

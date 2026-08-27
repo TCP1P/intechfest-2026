@@ -1,0 +1,20 @@
+# One .gzevent owns only the challenge manifests below this directory.
+title: "INTECHFEST 2026 Main Event"
+hidden: true
+summary: "The main INTECHFEST 2026 competition."
+content: |
+  This event is imported from the main-event tree in the private INTECHFEST
+  2026 challenge repository. It contains shared Leaderboard King of the Hill
+  arenas and remains hidden until staging and multi-team rehearsals pass.
+
+acceptWithoutReview: false
+practiceMode: true
+writeupRequired: false
+writeupNote: "No writeup is required by this repository manifest."
+
+ad:
+  tickSeconds: 120
+  flagLifetimeTicks: 5
+  warmupSeconds: 300
+  resetCooldownMinutes: 10
+  allowSnapshotDownload: false

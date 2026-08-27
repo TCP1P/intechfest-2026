@@ -1,0 +1,6 @@
+interface:
+  display_name: "rsctf Challenge Release Review"
+  short_description: "Audit rsctf challenge release readiness"
+  default_prompt: "Use $rsctf-challenge-release-review to audit whether this exact challenge revision is ready to import or enable."
+policy:
+  allow_implicit_invocation: true

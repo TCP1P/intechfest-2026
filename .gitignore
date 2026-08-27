@@ -1,6 +1,9 @@
-# Local scratch space
+# Local scratch and blind-playtest rooms
 /work/
-/challenges/*/deploy/active-event.env
+/playtest/
+**/playtest/
+**/playtest-history/
+**/.playtest-audit.json
 
 # OS and editor state
 .DS_Store
@@ -34,12 +37,21 @@ htmlcov/
 
 # Native build caches
 target/
+**/bin/
+**/obj/
 
-# AI tooling — local only, do not publish
+# Challenge-specific generated runtime and release state
+**/src/shared/beatmap-cache/
+**/src/server/rythme-server
+**/src/server/*.test
+**/src/server/coverage.out
+**/observer/active-event.env
+
+# Organizer secrets are never repository content
+**/solution/client-integrity-private.pem
+**/observer/*.secret
+
+# Editor-specific AI state; repository-local .agents skills are tracked
 CLAUDE.md
 .claude/
-.agents/
 .cursor/
-
-# Spoiler-heavy author brainstorming — local only, never publish
-/challenges/*/brainstorm/

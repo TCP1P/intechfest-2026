@@ -8,12 +8,12 @@ id = "generic-api-key"
 description = "Synthetic capability hashes used by the Minions bridge regression suite"
 condition = "AND"
 regexTarget = "line"
-paths = ['''intechfest/challenges/minions-in-32k/deploy/bridge/main_test\.go$''']
+paths = ['''events/main-event/challenges/Koth/PPC/minions-in-32k/observer/bridge/main_test\.go$''']
 regexes = ['''const tokenHash = "[0-9a-f]{64}"''']
 
 [[rules.allowlists]]
 description = "Player-recoverable Rythme policy fixtures printed in the official CTF solution"
 condition = "AND"
 regexTarget = "line"
-paths = ['''intechfest/challenges/rythme/README\.md$''']
+paths = ['''events/main-event/challenges/Koth/Reverse/rythme/solution/README\.md$''']
 regexes = ['''(?:variant|proof) key:\s+[0-9a-f]{64}''']

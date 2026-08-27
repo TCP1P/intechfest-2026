@@ -1,0 +1,6 @@
+interface:
+  display_name: "rsctf Challenge Authoring"
+  short_description: "Build safe rsctf challenge packages"
+  default_prompt: "Use $rsctf-challenge-authoring to create or modify an rsctf challenge package."
+policy:
+  allow_implicit_invocation: true
