@@ -1,0 +1,23 @@
+# Rythme is a shared, API-observed Leaderboard KotH arena.
+name: "Rythme"
+author: "dimasma0305"
+description: |
+  Rythme is Syncore's live Crown qualifier. Every crew receives the same
+  surprise track, discipline, and synchronized start. Download the supplied
+  client, complete a fresh server-timed heat, and take the recurring Crown
+  before the current owner locks in another payout.
+type: KingOfTheHill
+category: Reverse
+disableBloodBonus: true
+provide: dist/reversing_rythme.zip
+
+container:
+  # Repository Bindings builds the coordinator from src/Dockerfile.
+  memoryLimit: 512
+  cpuCount: 2
+  exposePort: 1337
+
+ad:
+  # The coordinator may retrieve a missing pinned beatmap from its allowlisted
+  # HTTPS mirror. Production should mount the reviewed cache and disable proxying.
+  allowEgress: true

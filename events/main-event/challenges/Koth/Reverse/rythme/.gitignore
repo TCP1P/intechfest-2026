@@ -1,0 +1,11 @@
+# Generated language and release-test artifacts
+/src/client/**/bin/
+/src/client/**/obj/
+/src/client/native/**/target/
+/src/shared/beatmap-cache/
+/src/server/rythme-server
+/src/server/*.test
+/src/server/coverage.out
+
+# The signing private key is generated and retained outside Git.
+/solution/client-integrity-private.pem

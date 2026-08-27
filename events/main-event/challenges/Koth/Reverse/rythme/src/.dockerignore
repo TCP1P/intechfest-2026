@@ -1,0 +1,9 @@
+# Keep the Docker build context to only what the scoring service needs. The
+# player-client source and handout builder do not enter the runtime image.
+.git
+.gitignore
+client
+challenge
+shared/beatmap-cache
+build-docker.sh
+build-release.sh

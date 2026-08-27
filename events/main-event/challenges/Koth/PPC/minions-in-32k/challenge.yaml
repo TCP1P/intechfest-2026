@@ -1,0 +1,23 @@
+# Minions in 32K is a shared, API-observed Leaderboard KotH arena.
+name: "Minions in 32K"
+author: "Project Sekai CTF contributors and dimasma0305"
+description: |
+  Fight for control of Gru's Lab in an objective-aware arena rendered at
+  exactly 32,768 internal pixels. Download the client, reverse protocol v13,
+  automate combat and confirmation routing, and sustain the best confirmed
+  performance across the arena.
+type: KingOfTheHill
+category: PPC
+disableBloodBonus: true
+provide: dist/game_minions-in-32k.zip
+
+container:
+  # Repository Bindings builds the shared arena from src/Dockerfile. The
+  # player-facing UDP relay is operated separately from observer/.
+  memoryLimit: 512
+  cpuCount: 2
+  exposePort: 8080
+
+ad:
+  # The arena reports to the separately deployed trusted bridge.
+  allowEgress: true

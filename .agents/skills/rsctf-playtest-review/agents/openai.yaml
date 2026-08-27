@@ -1,0 +1,6 @@
+interface:
+  display_name: "rsctf Playtest Review"
+  short_description: "Review clue fairness and unintended solves"
+  default_prompt: "Use $rsctf-playtest-review to evaluate this blind playtest report without leaking the intended solution."
+policy:
+  allow_implicit_invocation: true

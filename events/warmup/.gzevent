@@ -1,0 +1,13 @@
+# One .gzevent owns only the challenge manifests below this directory.
+title: "INTECHFEST 2026 Warmup"
+hidden: true
+summary: "Warmup challenges for INTECHFEST 2026."
+content: |
+  This event is imported from the warmup tree in the private INTECHFEST 2026
+  challenge repository. Keep it hidden until its schedule, player delivery,
+  and challenge set have passed release review.
+
+acceptWithoutReview: false
+practiceMode: true
+writeupRequired: false
+writeupNote: "No writeup is required for the warmup event."

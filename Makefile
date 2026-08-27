@@ -1,50 +1,30 @@
-# HTB Challenge Template Makefile
+RSCTF ?= rsctf
 
-.PHONY: help generate clean list validate update-readme install-deps
+.PHONY: help list validate matrix checkers solutions check
 
-# Default target
 help:
-	@echo "HTB Challenge Template - Available commands:"
+	@echo "INTECHFEST 2026 challenge repository commands"
 	@echo ""
-	@echo "  make generate                   - Generate all challenge templates"
-	@echo "  make list                       - List all available challenges"
-	@echo "  make validate                   - Validate challenge configuration"
-	@echo "  make update-readme              - Update README.md with current challenges"
-	@echo "  make clean                      - Clean generated challenges; preserve brainstorms"
-	@echo "  make install-deps               - Install required dependencies"
-	@echo "  make help                       - Show this help message"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make generate"
-	@echo "  make list"
-	@echo "  make validate"
+	@echo "  make list       List event and challenge manifests"
+	@echo "  make validate   Validate both events with the official rsctf CLI"
+	@echo "  make matrix     Print the dynamically discovered Docker build matrix"
+	@echo "  make checkers   Run every checker regression suite"
+	@echo "  make solutions  Compile every tracked Python solution file"
+	@echo "  make check      Run all local repository checks"
 
-# Generate all challenge templates
-generate:
-	@echo "Generating all challenge templates..."
-	@htb generate
-
-# List all available challenges
 list:
-	@echo "Available challenges:"
-	@htb list
+	@find events -type f \( -name .gzevent -o -name challenge.yaml -o -name challenge.yml \) -print | sort
 
-# Clean generated challenges
-clean:
-	@echo "Cleaning generated challenges..."
-	@htb clean
-
-# Install required dependencies
-install-deps:
-	@echo "Installing required dependencies..."
-	@echo "No additional dependencies required for Go binary"
-
-# Validate challenge configuration
 validate:
-	@echo "Validating challenge configuration..."
-	@htb validate
+	$(RSCTF) challenge check --deny-warnings .
 
-# Update README with current challenges
-update-readme:
-	@echo "Updating README.md with current challenges..."
-	@htb update-readme
+matrix:
+	$(RSCTF) challenge matrix .
+
+checkers:
+	@find events -path '*/checker/test_*.py' -type f -execdir python3 '{}' \;
+
+solutions:
+	@find events -path '*/solution/*.py' -type f -print0 | sort -z | xargs -0 -r -n1 python3 -m py_compile
+
+check: validate matrix checkers solutions
