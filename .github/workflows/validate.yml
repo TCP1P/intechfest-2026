@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      container_matrix: ${{ steps.rsctf.outputs.container_matrix }}
-      container_count: ${{ steps.rsctf.outputs.container_count }}
+      container_matrix: ${{ steps.container_matrix.outputs.matrix }}
+      container_count: ${{ steps.container_matrix.outputs.count }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -28,9 +28,45 @@ jobs:
           persist-credentials: false
           lfs: true
 
-      - name: Validate manifests with rsctf
-        id: rsctf
+      - name: Validate warmup manifests with rsctf
+        id: warmup
         uses: dimasma0305/rsctf@main
+        with:
+          path: events/warmup
+
+      - name: Validate main-event manifests with rsctf
+        id: main_event
+        uses: dimasma0305/rsctf@main
+        with:
+          path: events/main-event
+
+      - name: Combine dynamic container matrices
+        id: container_matrix
+        shell: bash
+        env:
+          WARMUP_MATRIX: ${{ steps.warmup.outputs.container_matrix }}
+          MAIN_EVENT_MATRIX: ${{ steps.main_event.outputs.container_matrix }}
+        run: |
+          set -euo pipefail
+          matrix="$(jq -cn \
+            --argjson warmup "$WARMUP_MATRIX" \
+            --argjson main_event "$MAIN_EVENT_MATRIX" \
+            '{include: (
+              ($warmup.include | map(
+                .context = ("events/warmup/" + .context)
+                | .name = ("warmup/" + .name)
+                | .tag = ("warmup-" + .tag)
+              ))
+              +
+              ($main_event.include | map(
+                .context = ("events/main-event/" + .context)
+                | .name = ("main-event/" + .name)
+                | .tag = ("main-event-" + .tag)
+              ))
+            )}')"
+          count="$(jq -r '.include | length' <<< "$matrix")"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'count=%s\n' "$count" >> "$GITHUB_OUTPUT"
 
       - name: Verify handout identities
         shell: bash
