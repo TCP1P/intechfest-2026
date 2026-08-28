@@ -13,7 +13,7 @@ it routes before acting:
 | Task | Skill |
 | --- | --- |
 | design an exploit, clue path, or difficulty target | `$rsctf-challenge-design` |
-| create or edit manifests, source, handouts, checkers, or observers | `$rsctf-challenge-authoring` |
+| create or edit manifests, source, handouts, checkers, managed reporters, or gateways | `$rsctf-challenge-authoring` |
 | write or reproduce `solution/README.md` and `solution/solve.py` | `$rsctf-challenge-solution` |
 | prepare and run a fresh blind solve | `$rsctf-challenge-playtest` |
 | assess a completed blind report and unintended paths | `$rsctf-playtest-review` |
@@ -35,10 +35,10 @@ Do not use author or solution context as the blind solver.
 - Keep Jeopardy scoring fields absent when rsctf defaults are intended. They do not belong
   on A&D or KotH manifests.
 - Put exact player downloads in `dist/`, image input in `src/`, A&D/KotH checks in
-  `checker/`, independent trusted infrastructure in `observer/`, and organizer material in
-  `solution/`.
+  `checker/`, an unavoidable transport-only adapter in `gateway/`, and organizer material
+  in `solution/`. Leaderboard reporting normally runs inside the managed target in `src/`.
 - Every challenge requires tracked `solution/README.md` and `solution/solve.py`. Neither may
-  enter `dist/`, a Docker context, an observer bundle, or a blind-playtest room.
+  enter `dist/`, a Docker context, a gateway bundle, or a blind-playtest room.
 - Direct `src/Dockerfile` and `generator/Dockerfile` contexts are discovered by
   `rsctf challenge matrix`; never hand-edit a container matrix or add a repository script.
 - Every long-running service declares a meaningful Docker `HEALTHCHECK`. Docker health is
@@ -48,18 +48,19 @@ Do not use author or solution context as the blind solver.
 
 ## Current main-event contracts
 
-- `Rythme` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact ZIP and
-  reach the shared coordinator. Its signed API observer is deployed separately.
+- `Rythme` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact ZIP;
+  the rsctf-managed coordinator reports native evidence in process, while `gateway/` only
+  keeps its stable HTTPS hostname pointed at the current target.
 - `Minions in 32K` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
-  ZIP; the rsctf target exposes its HTTP checker port, while the separately deployed bridge
-  owns player UDP relay and signed scoring evidence.
+  ZIP; the rsctf target owns identity, match validation, and scoring evidence, while the
+  separately deployed `gateway/` only adapts HTTPS and UDP transport.
 
 Both challenge checkers are bounded and read-only. They receive no flag and never inspect or
 alter the KotH claim source.
 
 ## Secret and player boundary
 
-Never commit a live flag, capability, observer secret, admin credential, TLS private key,
+Never commit a live flag, capability, reporter/legacy-observer secret, admin credential, TLS private key,
 undisclosed internal endpoint, database dump, or unredacted secret evidence. A reviewed
 public player endpoint may appear only in the release input that owns it. Private GitHub
 visibility protects organizer material from the public; it does not make committed secrets

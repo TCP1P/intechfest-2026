@@ -804,7 +804,7 @@ func (a *Arena) View(now time.Time) ArenaView {
 }
 
 // ScoringWindow returns immutable finalized waves inside one RSCTF scoring
-// round. The bounded durable ledger survives coordinator and observer restarts
+// round. The bounded durable ledger survives coordinator restarts
 // without putting historical wave rows on the heavily-polled public route.
 func (a *Arena) ScoringWindow(from, to, now time.Time) ScoringWindowView {
 	a.mu.Lock()
@@ -819,7 +819,7 @@ func (a *Arena) ScoringWindow(from, to, now time.Time) ScoringWindowView {
 		cloned := wave
 		// Keep an empty result collection as [] on the JSON wire. append(nil,
 		// empty...) produces a nil slice, which serializes as null and makes a
-		// valid no-performer wave fail the referee's strict snapshot schema.
+		// valid no-performer wave fail the reporter's strict snapshot schema.
 		cloned.Results = append(make([]ScoringResultView, 0, len(wave.Results)), wave.Results...)
 		waves = append(waves, cloned)
 	}

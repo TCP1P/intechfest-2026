@@ -16,8 +16,8 @@ challenge package are real; do not duplicate a main-event challenge as a placeho
 
 The main event currently contains:
 
-- `Rythme` — shared API-observed Leaderboard KotH in `Reverse`.
-- `Minions in 32K` — shared API-observed Leaderboard KotH in `PPC`.
+- `Rythme` — shared managed-reporting Leaderboard KotH in `Reverse`.
+- `Minions in 32K` — shared managed-reporting Leaderboard KotH in `PPC`.
 
 ## Layout
 
@@ -44,7 +44,7 @@ challenge.yaml       # rsctf manifest and player-facing copy
 dist/                # exact player handout
 src/                 # narrow Docker build context
 checker/             # read-only rsctf functional checker
-observer/            # separately deployed trusted referee or bridge
+gateway/             # optional stateless transport adapter; never a scoring owner
 solution/            # organizer writeup and reference solver
 ```
 
@@ -69,14 +69,16 @@ contains no local manifest validator or container-discovery script.
 
 ## Publishing boundary
 
-- Never commit a live flag, KotH capability, observer secret, admin token, TLS private key,
+- Never commit a live flag, KotH capability, reporter or legacy-observer secret, admin token, TLS private key,
   undisclosed internal endpoint, or unredacted secret evidence. Reviewed public player
   endpoints may appear only in their owning release inputs.
 - Treat `dist/` as player-visible and `solution/` as organizer-only.
 - Keep both events hidden and every imported challenge disabled until the exact revision
   passes the release checklist, a fresh blind playtest, and hidden staging.
-- Configure the signed API claim source and deploy the trusted observer/bridge separately;
-  no observer secret belongs in a challenge image or Git.
+- Enable the Leaderboard claim source and configure rsctf's private managed-reporter origin.
+  rsctf injects a lifecycle-bound secret into the target; it never belongs in Git, a
+  manifest, Compose file, handout, or child gameplay process. Deploy `gateway/` only for a
+  required transport adapter, never for scoring.
 
 Production topology and immutable artifact identities are recorded in
 [docs/production.md](docs/production.md).

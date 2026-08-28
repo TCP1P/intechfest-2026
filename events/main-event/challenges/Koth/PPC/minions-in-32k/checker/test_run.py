@@ -24,7 +24,7 @@ def health(**changes):
         "players": 8,
         "npcs": 7,
         "certHash": "a" * 64,
-        "build": "2026.08.21.1",
+        "build": "2026.08.28.1",
     }
     value.update(changes)
     return value

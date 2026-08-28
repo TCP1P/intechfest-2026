@@ -19,11 +19,11 @@ applies these gates without authorizing an import or enablement by itself.
       source, history, real flag, or organizer notes unless source is intentionally
       part of the challenge.
 - [ ] Container and generator build contexts contain no credentials, private keys,
-      observer secrets, admin tokens, or production-only configuration.
+      reporter/legacy-observer secrets, admin tokens, or production-only configuration.
 - [ ] Every dependency is necessary, reviewed, and pinned appropriately.
 - [ ] All committed flags are treated as disclosed and replaced for the real event.
 - [ ] Every package commits a concise `solution/README.md` and simple `solution/solve.py`;
-      neither appears in the handout, image context, generated content, observer bundle, or
+      neither appears in the handout, image context, generated content, gateway bundle, or
       playtest room.
 - [ ] The organizer solution follows the [standard format](solutions.md), records the exact
       candidate commit and applicable artifact/image hashes, and has a durable
@@ -73,8 +73,11 @@ applies these gates without authorizing an import or enablement by itself.
       understood.
 - [ ] A&D or KotH changes passed a full multi-team lifecycle rehearsal, including
       scheduling, VPN/BYOC paths, flag delivery, checking, reset, and scoring.
-- [ ] The signed KotH referee, when used, runs outside player workloads with its
-      secret and persistent state restricted to its dedicated identity.
+- [ ] Managed KotH reporting was exercised through an actual rsctf lifecycle: the target
+      submitted bounded evidence, a reset rotated the credential, the stale target was
+      rejected, and no child process inherited `RSCTF_KOTH_*` values.
+- [ ] A transport `gateway/`, when present, was tested in both directions and has no reporter
+      secret, roster/scoring state, or rsctf scoring access.
 
 Do not enable a future `DynamicAttachment` package until the target rsctf release supports
 and rehearses its per-participation download and flag assignment.

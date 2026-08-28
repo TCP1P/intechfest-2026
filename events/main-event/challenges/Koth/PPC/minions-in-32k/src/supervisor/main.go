@@ -49,28 +49,39 @@ var supervisorBuild = "dev"
 var errRosterConflict = errors.New("arena roster changed while a match is running")
 
 type config struct {
-	reportToken string
-	certHash    string
-	certDER     string
-	keyDER      string
-	graceSecs   int
-	matchSecs   int
-	roster      *arenaRoster
+	reportToken  string
+	certHash     string
+	certDER      string
+	keyDER       string
+	publicRemote string
+	managed      *managedReporterConfig
+	graceSecs    int
+	matchSecs    int
+	roster       *arenaRoster
 }
 
 type arenaRoster struct {
-	players     string
-	botKeys     string
-	botCount    int
-	playerCount int
-	fingerprint [32]byte
+	players           string
+	botKeys           string
+	botCount          int
+	playerCount       int
+	fingerprint       [32]byte
+	participants      []startPlayer
+	credentialByToken map[string]arenaCredential
+	tokenByName       map[string]string
 }
 
 type startPlayer struct {
-	UUID string `json:"uuid"`
-	Key  string `json:"key"`
-	Name string `json:"name"`
-	Bot  bool   `json:"bot"`
+	UUID      string `json:"uuid"`
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Bot       bool   `json:"bot"`
+	TokenHash string `json:"tokenHash,omitempty"`
+}
+
+type arenaCredential struct {
+	Name string
+	Key  string
 }
 
 type serverPlayer struct {
@@ -84,7 +95,8 @@ type startRequest struct {
 }
 
 type arena struct {
-	cfg config
+	cfg      config
+	reporter *managedReporter
 
 	mu          sync.Mutex
 	server      *exec.Cmd
@@ -138,10 +150,16 @@ func main() {
 		log.Fatalf("replay directory: %v", err)
 	}
 	a := &arena{cfg: cfg}
+	if cfg.managed != nil {
+		a.reporter = newManagedReporter(*cfg.managed, cfg.reportToken, a)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /qualityz", a.quality)
+	mux.HandleFunc("POST /api/v1/arena-session", a.createSession)
 	mux.HandleFunc("POST /internal/start", a.start)
+	mux.HandleFunc("POST /internal/match-report", a.acceptReport)
+	mux.HandleFunc("POST /internal/replay", a.acceptReplay)
 	server := &http.Server{
 		Addr: ":8080", Handler: securityHeaders(mux), ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
@@ -150,6 +168,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if a.reporter != nil {
+		go a.reporter.run(ctx)
+	}
 	errorsChannel := make(chan error, 1)
 	go func() { errorsChannel <- server.ListenAndServe() }()
 	log.Printf("Minions in 32K arena supervisor %s ready", supervisorBuild)
@@ -167,10 +188,20 @@ func main() {
 }
 
 func loadConfig() (config, error) {
+	managed, err := loadManagedReporterConfig()
+	if err != nil {
+		return config{}, err
+	}
 	reportToken := strings.TrimSpace(os.Getenv("REPORT_TOKEN"))
 	if reportToken == "" {
-		var err error
-		reportToken, err = deriveReportToken(os.Getenv("RSCTF_FLAG"))
+		seed := os.Getenv("RSCTF_FLAG")
+		if managed != nil {
+			seed = managed.Secret
+		}
+		reportToken, err = deriveReportToken(seed)
+		if err != nil && managed == nil && strings.TrimSpace(os.Getenv("RSCTF_FLAG")) == "" {
+			reportToken, err = randomReportToken()
+		}
 		if err != nil {
 			return config{}, err
 		}
@@ -183,9 +214,6 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	playerTokens := strings.TrimSpace(os.Getenv("PLAYER_TOKENS"))
-	if strings.TrimSpace(os.Getenv("REPORT_URL")) == "" {
-		return config{}, errors.New("arena server environment is incomplete")
-	}
 	var roster *arenaRoster
 	if playerTokens != "" {
 		botCount, err := boundedInteger("MINIONS_BOT_COUNT", 0, 7, 0)
@@ -206,11 +234,32 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	publicRemote := environmentDefault("MINIONS_PUBLIC_REMOTE", "tcp.1pc.tf:4532")
+	if !validRemote(publicRemote) {
+		return config{}, errors.New("MINIONS_PUBLIC_REMOTE must be a host and UDP port")
+	}
 	return config{
 		reportToken: reportToken, certHash: certHash, certDER: certDER, keyDER: keyDER,
-		graceSecs: graceSecs, matchSecs: matchSecs,
+		publicRemote: publicRemote,
+		managed:      managed,
+		graceSecs:    graceSecs, matchSecs: matchSecs,
 		roster: roster,
 	}, nil
+}
+
+func environmentDefault(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func randomReportToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate arena controller secret: %w", err)
+	}
+	return hex.EncodeToString(value), nil
 }
 
 func deriveReportToken(flag string) (string, error) {
@@ -358,13 +407,23 @@ func buildRoster(players []startPlayer) (arenaRoster, error) {
 	keys := make(map[string]bool, len(players))
 	serverPlayers := make([]serverPlayer, 0, len(players))
 	botKeys := make([]string, 0, len(players)-1)
+	credentials := make(map[string]arenaCredential, len(players))
+	tokensByName := make(map[string]string, len(players))
+	tokenHashes := make(map[string]bool, len(players))
 	for _, player := range players {
 		if player.Name == "" || len(player.Name) > 64 || hasControl(player.Name) || names[player.Name] ||
 			player.UUID == "" || len(player.UUID) > 128 || hasControl(player.UUID) || uuids[player.UUID] ||
-			len(player.Key) < 32 || len(player.Key) > 256 || hasControl(player.Key) || keys[player.Key] {
+			len(player.Key) < 32 || len(player.Key) > 256 || hasControl(player.Key) || keys[player.Key] ||
+			(player.Bot && player.TokenHash != "") ||
+			(player.TokenHash != "" && (!canonicalHash(player.TokenHash) || tokenHashes[player.TokenHash])) {
 			return arenaRoster{}, errors.New("arena roster contains invalid or duplicate credentials")
 		}
 		names[player.Name], uuids[player.UUID], keys[player.Key] = true, true, true
+		if player.TokenHash != "" {
+			tokenHashes[player.TokenHash] = true
+			credentials[player.TokenHash] = arenaCredential{Name: player.Name, Key: player.Key}
+			tokensByName[player.Name] = player.TokenHash
+		}
 		serverPlayers = append(serverPlayers, serverPlayer{UUID: player.UUID, Key: player.Key, Name: player.Name})
 		if player.Bot {
 			botKeys = append(botKeys, player.Key)
@@ -378,10 +437,16 @@ func buildRoster(players []startPlayer) (arenaRoster, error) {
 		return arenaRoster{}, err
 	}
 	joinedBotKeys := strings.Join(botKeys, ",")
-	fingerprint := sha256.Sum256(append(append([]byte{}, raw...), append([]byte{'\n'}, []byte(joinedBotKeys)...)...))
+	fingerprintInput, err := json.Marshal(players)
+	if err != nil {
+		return arenaRoster{}, err
+	}
+	fingerprint := sha256.Sum256(append(fingerprintInput, append([]byte{'\n'}, []byte(joinedBotKeys)...)...))
 	return arenaRoster{
 		players: string(raw), botKeys: joinedBotKeys, botCount: len(botKeys),
 		playerCount: len(players), fingerprint: fingerprint,
+		participants: append([]startPlayer(nil), players...), credentialByToken: credentials,
+		tokenByName: tokensByName,
 	}, nil
 }
 
@@ -764,6 +829,9 @@ func competitionEnvironment(base []string, cfg config, roster arenaRoster, match
 		"MINIONS_CERT_HASH": true, "MINIONS_BOT_KEYS": true, "MINIONS_BOT_COUNT": true,
 		"MINIONS_READY_FILE": true,
 		"RSCTF_FLAG":         true,
+		"RSCTF_KOTH_GAME_ID": true, "RSCTF_KOTH_CHALLENGE_ID": true,
+		"RSCTF_KOTH_PLATFORM_URL": true, "RSCTF_KOTH_CONTEXT_URL": true,
+		"RSCTF_KOTH_OBSERVATION_URL": true, "RSCTF_KOTH_REPORTER_SECRET": true,
 	}
 	filtered := make([]string, 0, len(base)+10)
 	for _, entry := range base {
@@ -777,6 +845,8 @@ func competitionEnvironment(base []string, cfg config, roster arenaRoster, match
 		"PLAYER_TOKENS="+roster.players,
 		"MATCH_ID="+matchID,
 		"REPORT_TOKEN="+cfg.reportToken,
+		"REPORT_URL=http://127.0.0.1:8080/internal/match-report",
+		"REPLAY_UPLOAD_URL=http://127.0.0.1:8080/internal/replay",
 		"WT_CERT_DER_B64="+cfg.certDER,
 		"WT_KEY_DER_B64="+cfg.keyDER,
 		"MINIONS_CERT_HASH="+cfg.certHash,

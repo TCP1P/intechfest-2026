@@ -211,7 +211,7 @@ objectives for its denials, and neutral objectives for everyone else.
 Confirmed kills are the primary live and final ranking field. Total frags and
 then fewer deaths break confirmed-score ties. Clients never submit any of these
 counters: the server derives them from simulation events and signs the match
-report used by the RSCTF observer.
+report consumed by the managed arena supervisor.
 
 ## Automation boundary
 
@@ -221,7 +221,7 @@ action that a player is actively taking. A player must remain in the loop and
 drive the match; a client that sustains combat without player participation is
 not eligible for official KotH activity, objective, or Crown evidence.
 
-This eligibility decision is private server-to-observer evidence. It does not
+This eligibility decision is private child-to-supervisor evidence. It does not
 add a public protocol message, change protocol revision 13, or expose a second
 player scoreboard. The bundled headless client is regression and exhibition
 infrastructure and is intentionally not scoring eligible.

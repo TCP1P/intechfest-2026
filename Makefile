@@ -1,6 +1,6 @@
 RSCTF ?= rsctf
 
-.PHONY: help list validate matrix checkers solutions check
+.PHONY: help list validate matrix checkers solutions components shellcheck check
 
 help:
 	@echo "INTECHFEST 2026 challenge repository commands"
@@ -10,6 +10,8 @@ help:
 	@echo "  make matrix     Print the dynamically discovered Docker build matrix"
 	@echo "  make checkers   Run every checker regression suite"
 	@echo "  make solutions  Compile every tracked Python solution file"
+	@echo "  make components Run Go component tests and static analysis"
+	@echo "  make shellcheck Parse every tracked POSIX shell entry point"
 	@echo "  make check      Run all local repository checks"
 
 list:
@@ -27,4 +29,21 @@ checkers:
 solutions:
 	@find events -path '*/solution/*.py' -type f -print0 | sort -z | xargs -0 -r -n1 python3 -m py_compile
 
-check: validate matrix checkers solutions
+components:
+	@find events -name go.mod -type f -exec sh -c '\
+		for module do \
+			directory=$$(dirname "$$module"); \
+			printf "Testing %s\\n" "$$directory"; \
+			(cd "$$directory" && go test ./... && go vet ./...) || exit; \
+		done' sh {} +
+
+shellcheck:
+	@find events -name '*.sh' -type f -exec sh -c '\
+		for file do \
+			case $$(head -n 1 "$$file") in \
+				*"/bash"*) bash -n "$$file" ;; \
+				*) sh -n "$$file" ;; \
+			esac || exit; \
+		done' sh {} +
+
+check: validate matrix checkers solutions components shellcheck

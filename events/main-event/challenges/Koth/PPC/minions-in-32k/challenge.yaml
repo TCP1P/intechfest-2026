@@ -1,4 +1,4 @@
-# Minions in 32K is a shared, API-observed Leaderboard KotH arena.
+# Minions in 32K is a shared, managed-reporting Leaderboard KotH arena.
 name: "Minions in 32K"
 author: "Project Sekai CTF contributors and dimasma0305"
 description: |
@@ -13,11 +13,11 @@ provide: dist/game_minions-in-32k.zip
 
 container:
   # Repository Bindings builds the shared arena from src/Dockerfile. The
-  # player-facing UDP relay is operated separately from observer/.
+  # player-facing UDP relay is operated separately from gateway/.
   memoryLimit: 512
   cpuCount: 2
   exposePort: 8080
 
 ad:
-  # The arena reports to the separately deployed trusted bridge.
-  allowEgress: true
+  # rsctf grants the managed target only its narrow scoring callback route.
+  allowEgress: false

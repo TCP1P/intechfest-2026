@@ -97,6 +97,12 @@ func TestLegacyCriticalRoutesAreNotExposed(t *testing.T) {
 			}
 		})
 	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/scoring", http.NoBody)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("legacy scoring feed returned %d", response.Code)
+	}
 }
 
 func TestBeatmapProxyStaysOnCoordinatorAndCachesVerifiedArchive(t *testing.T) {

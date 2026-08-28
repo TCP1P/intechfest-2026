@@ -13,7 +13,7 @@ because its manifest parses or its author solver works.
 1. Inspect Git status and identify the exact candidate commit. Read
    [the release evidence contract](references/release-evidence.md).
 2. Inspect the committed tree, manifest, player artifacts, source/build contexts,
-   dependencies, checkers, generators, observers, and organizer solution verification record.
+   dependencies, checkers, generators, managed reporters/gateways, and organizer solution verification record.
    Confirm every package has a concise `solution/README.md` and simple `solution/solve.py`,
    neither enters a player/build surface, and no live secret or unintended artifact is
    committed.

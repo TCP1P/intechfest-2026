@@ -6,11 +6,11 @@
 
 - Status: `draft`
 - Revision: working tree; freeze only after the committed rsctf layout is reproduced
-- Challenge type: `KingOfTheHill`, signed API observation
+- Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: hybrid shared service and `dist/reversing_rythme.zip`
 - Handout SHA-256: `91f378e90010349718074072859706813838af6e281006528a19f941283d9c24`
-- Runtime image: local `sha256:5232d9538a42e4754dacb4766bee5281ccbfae6077b11c9f13aeb808c41bb1e6`
-- Backend: local Docker coordinator; checker verified 2026-08-27 UTC by Codex; hidden rsctf staging still required
+- Runtime image: local `sha256:c93ea2eda9e51dbe0f197b245d749cb3c73c5b1bc198ec36e8773a5696b451a2`
+- Backend: local Docker coordinator; checker verified 2026-08-28 UTC by Codex; hidden rsctf staging still required
 - Solver command: `python3 solution/solve.py --host TARGET --port PORT --scheme https --token CURRENT_TOKEN`
 - Playtest: no uncontaminated report for this candidate revision
 
@@ -33,7 +33,7 @@ tokens and server-receipt timing.
 - The team's current event-scoped KotH capability.
 - Public `/api/v1/config` and `/api/v1/state` responses.
 
-The player does not receive coordinator source, observer state, signing secrets, future map
+The player does not receive coordinator source, managed reporter state, signing secrets, future map
 selections, or another team's capability.
 
 ## Walkthrough
@@ -72,8 +72,13 @@ policy later proves `HT`, whose lower multiplier raises the settlement ratio. Th
 still derives hits, accuracy, coverage, raw basis, and the input digest from fresh receipts,
 so replaying an old transcript or sending a declared score does not work.
 
-The trusted observer submits the finalized wave as signed evidence. rsctf performs the final
-relative normalization and Crown attribution; the solver never calls an organizer endpoint.
+The coordinator's in-process managed reporter submits the finalized wave as signed native
+evidence. rsctf performs the final relative normalization and Crown attribution; the solver
+never calls an organizer endpoint.
+
+The stateless `gateway/` only keeps the released client's stable HTTPS origin pointed at
+the current rsctf target and blocks the private scoring route. It receives no reporter
+credential and makes no scoring decision.
 
 ## Solver
 
@@ -116,7 +121,7 @@ settled score: 3032598
 These are text protocol and scoring results; a screenshot would not prove more than the
 retained command output.
 
-On 2026-08-27 UTC, the rebuilt coordinator reached Docker health under the CI sandbox and
+On 2026-08-28 UTC, the rebuilt coordinator reached Docker health under the CI sandbox and
 the rsctf checker returned OK through its published player port. The full reference exploit
 was not rerun against a committed hidden-staging heat, so the example scoring transcript is
 not freeze evidence for this candidate.
@@ -129,4 +134,4 @@ not freeze evidence for this candidate.
   score forward.
 - The signed selector and proof constants are recoverable from the issued executable and are
   not production secrets.
-- Never retain a real KotH token, observer HMAC secret, or production target in this folder.
+- Never retain a real KotH token, managed reporter secret, or production target in this folder.

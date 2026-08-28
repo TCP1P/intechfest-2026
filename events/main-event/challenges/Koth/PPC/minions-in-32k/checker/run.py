@@ -9,7 +9,7 @@ import time
 from lib import KothContext, Mumble, Offline, checker, run_koth_checker
 
 MAX_BODY = 16 * 1024
-EXPECTED_BUILD = "2026.08.21.1"
+EXPECTED_BUILD = "2026.08.28.1"
 
 
 def get_json(host: str, port: int, path: str, timeout: float = 4) -> dict:

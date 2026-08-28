@@ -20,6 +20,7 @@ import (
 	"rythme.local/server/internal/api"
 	"rythme.local/server/internal/arena"
 	"rythme.local/server/internal/rctf"
+	"rythme.local/server/internal/reporter"
 )
 
 const defaultReadyDuration = 30 * time.Second
@@ -36,6 +37,10 @@ func main() {
 	}
 
 	logger := log.New(os.Stdout, "rythme: ", log.LstdFlags|log.LUTC)
+	managedReporting, err := managedReporterEnvironment()
+	if err != nil {
+		logger.Fatalf("managed KotH reporter: %v", err)
+	}
 	pool, err := loadPool(env("RYTHME_POOL_PATH", "../shared/pool.json"))
 	if err != nil {
 		logger.Fatalf("load pool: %v", err)
@@ -54,7 +59,9 @@ func main() {
 		RawScoreFloor:      int64Env("RYTHME_RAW_SCORE_FLOOR", 700_000),
 		Seed:               int64Env("RYTHME_ARENA_SEED", time.Now().UnixNano()),
 	}
-	rctfBaseURL := strings.TrimSpace(os.Getenv("RSCTF_BASE_URL"))
+	rctfBaseURL := firstEnv("RSCTF_KOTH_PLATFORM_URL", "RSCTF_BASE_URL")
+	gameID := int(firstInt64Env("RSCTF_KOTH_GAME_ID", "RSCTF_GAME_ID"))
+	challengeID := int(firstInt64Env("RSCTF_KOTH_CHALLENGE_ID", "RSCTF_CHALLENGE_ID"))
 	statePath := strings.TrimSpace(os.Getenv("RYTHME_STATE_PATH"))
 	if rctfBaseURL != "" && statePath == "" {
 		logger.Fatal("RYTHME_STATE_PATH is required when RSCTF authentication is enabled")
@@ -73,8 +80,8 @@ func main() {
 	if rctfBaseURL != "" {
 		rctfAuthenticator = &rctf.TeamTokenAuthenticator{
 			BaseURL:     rctfBaseURL,
-			GameID:      int(int64Env("RSCTF_GAME_ID", 0)),
-			ChallengeID: int(int64Env("RSCTF_CHALLENGE_ID", 0)),
+			GameID:      gameID,
+			ChallengeID: challengeID,
 			Client:      &http.Client{Timeout: 6 * time.Second},
 		}
 		if !rctfAuthenticator.Enabled() {
@@ -84,6 +91,20 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if managedReporting {
+		managedReporter, reporterErr := reporter.New(reporter.Config{
+			GameID: gameID, ChallengeID: challengeID,
+			ContextURL:     strings.TrimSpace(os.Getenv("RSCTF_KOTH_CONTEXT_URL")),
+			ObservationURL: strings.TrimSpace(os.Getenv("RSCTF_KOTH_OBSERVATION_URL")),
+			Secret:         strings.TrimSpace(os.Getenv("RSCTF_KOTH_REPORTER_SECRET")),
+			Client:         &http.Client{Timeout: 6 * time.Second}, Logger: logger,
+		}, game)
+		if reporterErr != nil {
+			logger.Fatalf("managed KotH reporter: %v", reporterErr)
+		}
+		go managedReporter.Run(ctx)
+		logger.Printf("managed KotH evidence reporting enabled")
+	}
 	go func() {
 		if err := game.Run(ctx); err != nil {
 			logger.Fatalf("arena scheduler stopped: %v", err)
@@ -123,6 +144,30 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatalf("serve: %v", err)
 	}
+}
+
+func managedReporterEnvironment() (bool, error) {
+	names := []string{
+		"RSCTF_KOTH_GAME_ID",
+		"RSCTF_KOTH_CHALLENGE_ID",
+		"RSCTF_KOTH_PLATFORM_URL",
+		"RSCTF_KOTH_CONTEXT_URL",
+		"RSCTF_KOTH_OBSERVATION_URL",
+		"RSCTF_KOTH_REPORTER_SECRET",
+	}
+	present := 0
+	for _, name := range names {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			present++
+		}
+	}
+	if present == 0 {
+		return false, nil
+	}
+	if present != len(names) {
+		return false, errors.New("managed reporter environment is incomplete")
+	}
+	return true, nil
 }
 
 func coordinatorHealthcheck(url string) error {
@@ -221,6 +266,24 @@ func int64Env(name string, fallback int64) int64 {
 		log.Fatalf("%s must be an integer: %v", name, err)
 	}
 	return parsed
+}
+
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstInt64Env(names ...string) int64 {
+	for _, name := range names {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return int64Env(name, 0)
+		}
+	}
+	return 0
 }
 
 func boolEnv(name string, fallback bool) bool {

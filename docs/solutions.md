@@ -22,7 +22,7 @@ Keep this pre-event repository access-controlled, or retain an unpublished solut
 separate restricted store. Every repository reader can see the tracked solutions.
 
 Repository access is not player delivery. Never copy `solution/` into `dist/`, a `src/`
-Docker context, generated content, an observer bundle, or a blind-playtest room. Do not store
+Docker context, generated content, a gateway bundle, or a blind-playtest room. Do not store
 live flags, reusable credentials, organizer tokens, production targets, or unredacted secrets
 in a solution or its screenshots.
 
@@ -133,7 +133,7 @@ to the same committed revision:
 - UTC test time and reviewer;
 - exact successful solver command and redacted output;
 - every retained screenshot and its reproducible command; and
-- applicable checker, generator, flag-rotation, KotH, BYOC, or observer evidence.
+- applicable checker, generator, flag-rotation, KotH reporter/gateway, or BYOC evidence.
 
 Any change to behavior, player copy, solver, or retained evidence returns the writeup to
 `draft`. A working solver proves mechanics. A separate blind playtest proves discoverability

@@ -52,7 +52,7 @@ events/<event>/challenges/<mode>/<category>/<slug>/
 │   └── requirements.txt # optional: exact wheel-installable PyPI pins
 ├── generator/           # optional: deterministic variant build context
 │   └── Dockerfile
-├── observer/            # optional: independently deployed organizer process
+├── gateway/             # optional: stateless transport adapter only
 └── solution/            # required tracked organizer material
     ├── README.md        # concise writeup in the standard format
     └── solve.py         # simple reference solver
@@ -70,15 +70,15 @@ but this repository does not use that fallback for new work.
 | --- | --- | --- | --- |
 | `challenge.yaml` | rsctf and players | metadata, public copy, challenge type, delivery and runtime policy | unknown fields, live credentials, private notes |
 | `dist/` | players | byte-for-byte downloadable handout | solver, solution, hidden source, real production flag, repository history |
-| `src/` | service build and runtime | only files required to build and run the attackable service | author notes, observer secret, solution, unrelated tooling |
+| `src/` | service build and runtime | attackable service plus in-process managed reporting when Leaderboard scoring is used | author notes, committed reporter secret, solution, unrelated tooling |
 | `checker/` | trusted rsctf checker sandbox | bounded functional checks against one target IP and port | service implementation, stateful attacks, shell-based dependencies |
 | `generator/` | trusted variant runner | deterministic content, hints, and flag derivation | network dependencies, mutable inputs, unrelated service code |
-| `observer/` | organizer-operated infrastructure | external evidence collection and signed KotH submissions | secrets in source, player-facing service code |
+| `gateway/` | organizer-operated transport adapter | unavoidable TLS/protocol/UDP adaptation to the current target | reporter secrets, roster/scoring state, score decisions |
 | `solution/` | repository readers and organizers; never players by delivery | intended path, simple solver, reviewed evidence, limitations | live credentials, production flags, unreferenced captures, player-delivery files |
 
 Component-specific unit tests stay with the component and follow that language's normal
 layout. Add a package-level test directory only when a real cross-component test cannot be
-owned by `src/`, `checker/`, `generator/`, or `observer/`. Test code is not a substitute
+owned by `src/`, `checker/`, `generator/`, or `gateway/`. Test code is not a substitute
 for the organizer reference solver and must not enter `dist/`.
 
 ## Naming rules
@@ -118,7 +118,7 @@ Start with the nearest example and retain only the other applicable components.
 | managed Attack & Defense | `challenge.yaml`, `src/`, `checker/` | optional deliberate handout | rsctf runs one service per accepted team |
 | self-hosted/BYOC Attack & Defense | `challenge.yaml`, `src/`, `checker/` | platform-generated bundle and image | keep `ad.selfHosted: true`; do not commit a generated team bundle |
 | marker King of the Hill | `challenge.yaml`, `src/`, `checker/` | optional deliberate handout | service writes the current control token to `/koth/king` |
-| API-observed King of the Hill | `challenge.yaml`, `src/`, `checker/`, `observer/` | optional deliberate handout | observer is deployed separately and never enters `src/` |
+| managed Leaderboard King of the Hill | `challenge.yaml`, `src/`, `checker/` | optional deliberate handout; `gateway/` only for a required transport adapter | target reports native evidence with a lifecycle-bound rsctf credential |
 
 `dist/` is optional for a service unless players truly receive files. A source tree in
 Git is not automatically a player handout. Conversely, source intentionally supplied to
@@ -228,7 +228,7 @@ the solver.
 
 Do not use a real event flag in source tests, Docker layers, health checks, logs, screenshots,
 solution evidence, or CI. Use unmistakable local values such as `rsctf{local_test}` and
-redact retained output to `rsctf{...}`. Store observer secrets, receipt issuer tokens, admin
+redact retained output to `rsctf{...}`. Store reporter/legacy-observer secrets, receipt issuer tokens, admin
 JWTs, repository tokens, SSH keys, and production endpoints only in the deployment's
 restricted secret/configuration stores.
 
@@ -322,7 +322,7 @@ A healthy image proves that its process starts and answers the health probe. It 
 prove the challenge is solvable, that a flag rotates, that a checker classifies failures
 correctly, or that Kubernetes readiness is configured.
 
-## Checker, generator, and observer boundaries
+## Checker, generator, reporter, and gateway boundaries
 
 ### Checker
 
@@ -344,12 +344,17 @@ result, and produces byte-identical output for identical input. Generated conten
 may be player-facing; generated flags remain server-side. See
 [Provenance](provenance.md).
 
-### Observer
+### Managed reporter and gateway
 
-`observer/` is organizer operational tooling. It is neither player source nor part of the
-attackable service build context. Keep its secret and persistent state in the deployment's
-secret and state stores, not in this repository. Test and deploy it under an independent
-identity. See [Trusted KotH referee](koth-referee.md).
+Leaderboard evidence is owned inside the rsctf-managed target. rsctf injects exact context
+and observation URLs plus a lifecycle-bound signing credential at runtime. The target
+submits bounded native evidence and a unique-leader Crown assertion, never platform points.
+Do not commit or forward that credential to a player client or avoidably broad child process.
+
+Add `gateway/` only when the platform's exposed transport cannot directly carry the player
+protocol. It may adapt TLS, HTTP, or UDP and track the current target, but it has no reporter
+credential, scoring state, roster authority, or rsctf scoring access. See
+[Managed KotH reporting](koth-reporting.md).
 
 ## Organizer solution boundary
 
@@ -368,11 +373,11 @@ These files are tracked. Anyone with repository read access can read them. Keep 
 repositories restricted, or retain unpublished solutions in a separate access-controlled
 store. This private repository deliberately tracks organizer solutions for its maintainers.
 Tracking a solution does not make it player-facing: `provide`, Docker contexts, generators,
-observers, and playtest rooms must still exclude it.
+gateways, and playtest rooms must still exclude it.
 
 Never put `challenge.yaml` or `.gzevent` inside `solution/`, because recursive discovery
 would treat them as live manifests in a working tree. Never copy `solution/` into `dist/`,
-`src/`, a generator context, observer deployment bundle, screenshot, or playtest room.
+`src/`, a generator context, gateway deployment bundle, screenshot, or playtest room.
 
 Use the exact format and copyable template in [Solutions and reference solvers](solutions.md).
 
@@ -425,7 +430,7 @@ A challenge is ready only when all applicable claims have evidence for the same 
 - component tests and a clean reference solve pass;
 - long-running images reach Docker health and pass an independent player-visible protocol
   test;
-- checkers, flag delivery, generators, observers, BYOC, or engine lifecycle behavior have
+- checkers, flag delivery, generators, managed reporters/gateways, BYOC, or engine lifecycle behavior have
   been exercised through their actual staging path when applicable;
 - a fresh blind playtest supports the clue and difficulty assessment;
 - high- and critical-severity unintended paths are fixed and retested; and

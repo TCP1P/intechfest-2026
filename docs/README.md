@@ -13,7 +13,7 @@ reading every reference front to back.
 | run a fair blind solve | [Playtesting](playtesting.md) |
 | import or rescan the repository | [Repository Bindings](importing.md) |
 | prepare deterministic variants or solve receipts | [Provenance](provenance.md) |
-| deploy the signed Leaderboard KotH observer | [Trusted KotH referee](koth-referee.md) |
+| implement or test managed Leaderboard reporting | [Managed KotH reporting](koth-reporting.md) |
 | place screenshots, freezed figures, or event media | [Media and screenshots](media.md) |
 | keep player copy consistent with the event | [Event and challenge themes](theme.md) |
 | inspect immutable artifact and production topology | [Production release contract](production.md) |

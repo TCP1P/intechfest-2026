@@ -1,6 +1,6 @@
 ---
 name: rsctf-challenge-authoring
-description: Create or modify rsctf Repository Bindings challenge packages. Use for scaffolding package layout, editing challenge manifests, player handouts, container source, A&D/KotH checkers, deterministic generators, or KotH observers; use the separate solution, playtest, and release-review skills for those phases.
+description: Create or modify rsctf Repository Bindings challenge packages. Use for package layout, manifests, handouts, container source, A&D/KotH checkers, deterministic generators, managed KotH reporters, or transport gateways; use the separate solution, playtest, and release-review skills for those phases.
 ---
 
 # rsctf Challenge Authoring
@@ -22,8 +22,8 @@ Read each selected document completely before editing:
   [Manifest reference](../../../docs/configuration.md)
 - A&D/KotH checker or verdict behavior:
   [Checker development](../../../docs/checkers.md)
-- API-observed Leaderboard KotH referee:
-  [Trusted KotH referee](../../../docs/koth-referee.md)
+- Managed Leaderboard KotH reporting or a transport gateway:
+  [Managed KotH reporting](../../../docs/koth-reporting.md)
 - Deterministic variants or trusted solve receipts:
   [Provenance](../../../docs/provenance.md)
 - Import mechanics needed while authoring:
@@ -46,8 +46,8 @@ references merely because they exist.
    table. Never copy a package across events merely to populate an empty event.
 4. Put behavior in its owning layer: manifest metadata in `challenge.yaml`, service
    code in `src/`, player files in `dist/`, checker protocol in `checker/run.py`,
-   deterministic generation in `generator/`, and trusted referee logic in
-   `observer/`.
+   deterministic generation in `generator/`, managed evidence reporting beside its
+   authoritative state in `src/`, and an unavoidable transport-only adapter in `gateway/`.
 5. Add or update focused regression coverage for contract changes. Keep inputs bounded,
    dependencies pinned, and secrets absent from source and evidence.
 6. Run focused checks, `make validate`, and `make matrix`. Both commands must use the
@@ -69,7 +69,7 @@ references merely because they exist.
 - Omit `minScoreRate`, `difficulty`, and `submissionLimit` when rsctf's current
   Jeopardy defaults are intended. Add them only for a deliberate scoring-policy
   override, and omit them from A&D and KotH manifests.
-- Never commit organizer tokens, observer HMAC secrets, undisclosed internal endpoints,
+- Never commit organizer tokens, reporter or legacy-observer HMAC secrets, undisclosed internal endpoints,
   database dumps, container logs containing flags, live credentials, or unredacted secret
   evidence. Reviewed public player endpoints belong only in their owning release inputs.
 - Give every package a tracked organizer `solution/README.md` and small `solution/solve.py`.
@@ -78,6 +78,10 @@ references merely because they exist.
   discovers nested manifest files.
 - A&D checkers must verify health and the current flag without mutating service state.
   KotH checkers receive no flag and must not inspect or alter the control source.
+- A managed Leaderboard target reads only rsctf-injected `RSCTF_KOTH_*` values, submits
+  bounded native evidence rather than points, and filters those values from child-process
+  environments. Add `gateway/` only for a concrete transport mismatch; it must remain
+  stateless with respect to identity/scoring and receive no reporter credential.
 - Checkers have one target IP/port, bounded time and output, a read-only source/venv,
   and only exact wheel-installable PyPI pins.
 - Do not present the included `DynamicAttachment` manifest as playable while rsctf

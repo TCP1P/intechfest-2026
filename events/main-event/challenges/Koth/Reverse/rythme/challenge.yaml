@@ -1,4 +1,4 @@
-# Rythme is a shared, API-observed Leaderboard KotH arena.
+# Rythme is a shared, managed-reporting Leaderboard KotH arena.
 name: "Rythme"
 author: "dimasma0305"
 description: |
@@ -12,12 +12,13 @@ disableBloodBonus: true
 provide: dist/reversing_rythme.zip
 
 container:
-  # Repository Bindings builds the coordinator from src/Dockerfile.
+  # Repository Bindings builds the coordinator from src/Dockerfile. The stable
+  # player-facing HTTPS origin is operated separately from gateway/.
   memoryLimit: 512
   cpuCount: 2
   exposePort: 1337
 
 ad:
-  # The coordinator may retrieve a missing pinned beatmap from its allowlisted
-  # HTTPS mirror. Production should mount the reviewed cache and disable proxying.
-  allowEgress: true
+  # Players fetch the pinned public beatmaps directly. rsctf grants only the
+  # managed scoring callback route to the coordinator.
+  allowEgress: false

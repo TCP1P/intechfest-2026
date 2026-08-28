@@ -1,15 +1,17 @@
 ARG GO_IMAGE=golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191
-ARG RYTHME_VERSION=2026.08.21.1
+ARG RYTHME_VERSION=2026.08.28.1
 ARG SOURCE_REVISION=unknown
 FROM ${GO_IMAGE} AS builder
 
 ARG RYTHME_VERSION
 
 WORKDIR /build
+COPY shared/pool.json ./shared/pool.json
 COPY server/go.mod ./server/go.mod
 COPY server ./server
 WORKDIR /build/server
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN go test ./... \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -buildvcs=false \
     -trimpath \
     -ldflags="-s -w -X main.serverBuild=${RYTHME_VERSION}" \
@@ -32,7 +34,7 @@ COPY shared/pool.json /app/pool.json
 ENV RYTHME_LISTEN=:1337
 ENV RYTHME_POOL_PATH=/app/pool.json
 ENV RYTHME_BEATMAP_DIR=/app/beatmaps
-ENV RYTHME_BEATMAP_PROXY=true
+ENV RYTHME_BEATMAP_PROXY=false
 ENV RYTHME_READY_DURATION=30s
 ENV RYTHME_STATE_PATH=/var/lib/rythme/arena.json
 

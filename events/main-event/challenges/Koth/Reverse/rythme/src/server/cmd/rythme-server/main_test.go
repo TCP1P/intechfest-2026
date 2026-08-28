@@ -34,6 +34,29 @@ func TestDefaultReadyWindowIsFixedAtThirtySeconds(t *testing.T) {
 	}
 }
 
+func TestManagedReporterEnvironmentIsAllOrNothing(t *testing.T) {
+	names := []string{
+		"RSCTF_KOTH_GAME_ID", "RSCTF_KOTH_CHALLENGE_ID", "RSCTF_KOTH_PLATFORM_URL",
+		"RSCTF_KOTH_CONTEXT_URL", "RSCTF_KOTH_OBSERVATION_URL", "RSCTF_KOTH_REPORTER_SECRET",
+	}
+	for _, name := range names {
+		t.Setenv(name, "")
+	}
+	if enabled, err := managedReporterEnvironment(); enabled || err != nil {
+		t.Fatalf("empty environment enabled=%v error=%v", enabled, err)
+	}
+	t.Setenv(names[0], "7")
+	if enabled, err := managedReporterEnvironment(); enabled || err == nil {
+		t.Fatalf("partial environment enabled=%v error=%v", enabled, err)
+	}
+	for _, name := range names {
+		t.Setenv(name, "configured")
+	}
+	if enabled, err := managedReporterEnvironment(); !enabled || err != nil {
+		t.Fatalf("complete environment enabled=%v error=%v", enabled, err)
+	}
+}
+
 func TestBundledRealHardPool(t *testing.T) {
 	sharedDir := filepath.Join("..", "..", "..", "shared")
 	pool, err := loadPool(filepath.Join(sharedDir, "pool.json"))

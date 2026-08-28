@@ -30,13 +30,13 @@ jobs:
 
       - name: Validate warmup manifests with rsctf
         id: warmup
-        uses: dimasma0305/rsctf@main
+        uses: dimasma0305/rsctf@v0.1.93
         with:
           path: events/warmup
 
       - name: Validate main-event manifests with rsctf
         id: main_event
-        uses: dimasma0305/rsctf@main
+        uses: dimasma0305/rsctf@v0.1.93
         with:
           path: events/main-event
 
@@ -81,6 +81,61 @@ jobs:
         run: |
           make checkers
           make solutions
+
+  components:
+    name: Test challenge components
+    needs: manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: |
+            events/**/go.mod
+
+      - name: Exercise all Go components
+        run: make components
+
+      - name: Parse deployment entry points
+        run: make shellcheck
+
+  minions-engine:
+    name: Test Minions Rust workspace
+    needs: manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: events/main-event/challenges/Koth/PPC/minions-in-32k/src/game
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
+
+      - name: Install Minions native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
+
+      - name: Check formatting
+        run: cargo +1.96.0 fmt --all -- --check
+
+      - name: Exercise the workspace
+        run: cargo +1.96.0 test --locked --workspace --all-targets
 
   containers:
     name: Build ${{ matrix.name }}
@@ -133,7 +188,7 @@ jobs:
             --pids-limit 512 \
             --memory 768m \
             --env 'RSCTF_FLAG=rsctf{ci_healthcheck_seed_0000000000000000}' \
-            --env 'REPORT_URL=http://127.0.0.1:9/report' \
+            --env 'MINIONS_PUBLIC_REMOTE=127.0.0.1:4532' \
             --env 'RYTHME_STATE_PATH=/tmp/rythme-arena.json' \
             --env 'RYTHME_BEATMAP_DIR=/tmp/beatmaps' \
             "$IMAGE")"
@@ -160,3 +215,28 @@ jobs:
           docker logs "$container_id"
           echo "::error::Service image $IMAGE did not become healthy within 60 seconds."
           exit 1
+
+  gateways:
+    name: Build transport gateways
+    needs: manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build every gateway image
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r dockerfile; do
+            context="${dockerfile%/Dockerfile}"
+            tag="intechfest-2026/gateway-$(sha256sum <<< "$context" | cut -c1-16):ci"
+            docker build --pull --tag "$tag" "$context"
+            test "$(docker image inspect "$tag" --format '{{if .Config.Healthcheck}}present{{else}}missing{{end}}')" = present
+            count=$((count + 1))
+          done < <(find events -path '*/gateway/Dockerfile' -type f -print | sort)
+          test "$count" -gt 0
