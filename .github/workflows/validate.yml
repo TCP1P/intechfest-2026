@@ -123,6 +123,14 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
 
+      - name: Install Minions native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
+
       - name: Check formatting
         run: cargo +1.96.0 fmt --all -- --check
 
