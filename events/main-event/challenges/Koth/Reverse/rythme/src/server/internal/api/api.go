@@ -92,7 +92,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/v1/config", s.config)
 	mux.HandleFunc("GET /api/v1/state", s.state)
-	mux.HandleFunc("GET /api/v1/scoring", s.scoring)
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("GET /api/v1/beatmaps/{name}", s.beatmap)
 	mux.HandleFunc("POST /api/v2/session/local", s.localSession)
@@ -217,19 +216,6 @@ func (s *Server) rctfSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.Arena.View(time.Now().UTC()))
-}
-
-func (s *Server) scoring(w http.ResponseWriter, r *http.Request) {
-	fromMS, fromErr := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
-	toMS, toErr := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
-	from := time.UnixMilli(fromMS).UTC()
-	to := time.UnixMilli(toMS).UTC()
-	if fromErr != nil || toErr != nil || fromMS <= 0 || toMS <= 0 ||
-		!to.After(from) || to.Sub(from) > 2*time.Hour {
-		writeProblem(w, http.StatusBadRequest, "invalid scoring window")
-		return
-	}
-	writeJSON(w, http.StatusOK, s.Arena.ScoringWindow(from, to, time.Now().UTC()))
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {

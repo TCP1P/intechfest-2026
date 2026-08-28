@@ -14,15 +14,15 @@ for a compatible protocol:
   onboarding without creating a scoring session.
 - [Minions in 32K checker](../events/main-event/challenges/Koth/PPC/minions-in-32k/checker/)
   validates health and an active pinned-certificate QUIC quality probe without reading the
-  bridge or scoring source.
+  gateway or scoring source.
 
 This repository has no A&D example. A new A&D checker must still use the same canonical
 runtime/verdict contract and verify the current injected flag through ordinary player-visible
 behavior.
 
-The independently deployed Leaderboard referee is documented in
-[Trusted KotH referee](koth-referee.md); it is not part of the attackable image or
-checker sandbox.
+Managed Leaderboard reporting is documented in [Managed KotH reporting](koth-reporting.md).
+It runs beside the authoritative target state and remains separate from the read-only checker
+contract.
 
 ## Runtime contract
 

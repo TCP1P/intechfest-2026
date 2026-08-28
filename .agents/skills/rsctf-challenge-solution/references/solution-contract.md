@@ -16,7 +16,7 @@ repository can read them. Keep a real pre-event repository access-controlled, or
 unpublished solution in a separate restricted store. Public examples are permanently
 disclosed.
 
-Do not put solution files in `dist/`, `src/`, a generator context, an observer bundle, or a
+Do not put solution files in `dist/`, `src/`, a generator context, a gateway bundle, or a
 blind-playtest room. Never place `challenge.yaml` or `.gzevent` inside `solution/`; recursive
 manifest discovery does not care whether Git ignores a path.
 
@@ -35,7 +35,7 @@ Record:
 - exact solver command and redacted result; and
 - playtest report identifier when one exists.
 
-Any behavior-bearing manifest, handout, source, checker, generator, observer, solver, or
+Any behavior-bearing manifest, handout, source, checker, generator, managed reporter/gateway, solver, or
 writeup-evidence change returns the record to `draft` until it is reproduced.
 
 ## Review audit

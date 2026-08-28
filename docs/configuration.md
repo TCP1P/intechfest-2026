@@ -225,12 +225,14 @@ ad:
   allowEgress: false
 ```
 
-The repository manifest does not contain an API-observer secret or claim-source
-switch. For an API-observed hill, import the ordinary `KingOfTheHill` manifest,
-then enable **API** for that hill in the A&D / KotH operator view before the
-official snapshot is created. Store the one-time secret only in an independently
-hosted observer. RSCTF freezes `Marker` or `Api` as the claim source when
-official scoring starts; the observer reports a capability, never a score.
+The repository manifest does not contain a reporter secret or claim-source switch. For a
+managed Leaderboard hill, import the ordinary `KingOfTheHill` manifest, configure rsctf's
+private `RSCTF_KOTH_REPORTER_BASE_URL`, then enable **Leaderboard** for that hill in the
+A&D / KotH operator view before the official snapshot is created. rsctf injects a
+lifecycle-bound credential and exact callback URLs into the managed target. It freezes
+`Marker` or `Api` as the claim source when official scoring starts; the target reports
+bounded native evidence, never a platform score. The displayed external HMAC credential is
+only for legacy deployments that cannot report in process.
 
 Even in BYOC mode, keep a local `src/Dockerfile`: rsctf builds it during import
 and streams the immutable challenge-service image to authorized teams. The BYOC
@@ -242,8 +244,8 @@ dependency and all base images for a completely Docker-Hub-free deployment.
 
 | Type/mode | Example |
 | --- | --- |
-| signed-API `KingOfTheHill`, Python observer | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |
-| signed-API `KingOfTheHill`, trusted relay/bridge | [`Koth/PPC/minions-in-32k`](../events/main-event/challenges/Koth/PPC/minions-in-32k/) |
+| managed-reporting `KingOfTheHill`, in-process coordinator with transport gateway | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |
+| managed-reporting `KingOfTheHill`, transport gateway | [`Koth/PPC/minions-in-32k`](../events/main-event/challenges/Koth/PPC/minions-in-32k/) |
 
 The field reference above covers other rsctf types, but this repository does not pretend its
 KotH packages are suitable templates for Jeopardy or A&D. For deterministic variants and

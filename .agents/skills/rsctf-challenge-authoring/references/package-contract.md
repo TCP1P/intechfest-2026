@@ -13,9 +13,9 @@ Resolve these facts from the request, nearest example, and current manifest:
 2. Challenge type: attachment, container, Attack & Defense, or King of the Hill.
 3. Player delivery: `service`, `handout`, `hybrid`, or `byoc`.
 4. Flag/control flow: static flag, injected dynamic flag, rotating flag file,
-   deterministic variant, KotH marker, or signed API observation.
-5. Runtime owner: rsctf-managed container, team-owned BYOC host, independent observer,
-   or no service.
+   deterministic variant, KotH marker, or managed Leaderboard evidence.
+5. Runtime owner: rsctf-managed container, team-owned BYOC host, optional transport
+   gateway, or no service.
 6. Exact public inputs and exact author-only inputs.
 
 Do not infer that repository source is player-visible. Do not infer a handout from the
@@ -35,7 +35,8 @@ for the slug, an exact supported category, and `challenge.yaml` as the filename.
 | attackable service | `src/` | rsctf builds a service locally |
 | A&D/KotH health | `checker/` | challenge uses the A&D engine |
 | deterministic variant | `generator/` | local `PerParticipation` generation is used |
-| independent referee | `observer/` | the KotH claim source is signed API evidence |
+| managed reporter | `src/` | the KotH target owns native evidence and rsctf scoring is enabled |
+| transport adapter | `gateway/` | the player protocol cannot use the platform's exposed transport directly |
 | organizer solve | `solution/` | every package has concise `README.md` and `solve.py` |
 
 Delete every copied component not justified by this table. Do not create package-local
@@ -47,7 +48,7 @@ Player instructions belong in manifest copy or `dist/`; repository guidance belo
 
 For every added or moved file, ask:
 
-- Who reads it: player, service, rsctf checker/generator, observer operator, author, or
+- Who reads it: player, service, rsctf checker/generator, gateway operator, author, or
   repository contributor?
 - Is that audience already represented by a canonical directory?
 - Can the file be removed without changing the declared contract?
@@ -100,12 +101,18 @@ directory merely to avoid deciding ownership.
 - Disable network and mutable external inputs by design.
 - Keep player content/hints separate from server-side generated flags.
 
-### Observer
+### Managed reporter and gateway
 
-- Keep it outside `src/` and deploy it independently.
-- Load secrets and persistent state at runtime from restricted stores.
-- Submit capabilities/evidence according to the current rsctf contract, never invented
-  scores.
+- Keep the reporter beside the authoritative scoring state in `src/`; do not create a
+  second private scoring feed merely for another process.
+- Read the exact injected URLs, scope IDs, and `koth_target_…` secret. Stay healthy without
+  them for pre-cycle provisioning, but fail closed on event identity/scoring operations.
+- Filter eligible capability hashes, validate evidence/Crown invariants, sign exact raw JSON,
+  verify the full raw acknowledgement, and submit evidence rather than invented points.
+- Never pass `RSCTF_KOTH_*` values into a player-facing child process or persist them.
+- Add `gateway/` only for an unavoidable transport adapter. It may proxy/relay and track the
+  active target, but receives no reporter secret and owns no roster, evidence, or scoring
+  state.
 
 ### Solution
 

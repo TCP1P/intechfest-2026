@@ -25,7 +25,7 @@ The intended reversing path must not appear in player-facing copy or artwork.
 
 Minions in 32K is an objective-aware arena in Gru's Lab. Player copy can mention combat,
 confirmation routing, protocol analysis, the 32,768-pixel render constraint, and sustaining
-the best confirmed performance. Do not disclose organizer bridge credentials, scoring
+the best confirmed performance. Do not disclose managed reporter credentials, scoring
 internals, the reference headless client, or the exact automation strategy.
 
 Retain the upstream Project Sekai attribution and license notices in every player artifact

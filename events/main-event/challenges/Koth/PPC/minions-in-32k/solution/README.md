@@ -6,11 +6,11 @@
 
 - Status: `draft`
 - Revision: working tree; freeze only after the committed rsctf layout is reproduced
-- Challenge type: `KingOfTheHill`, signed API observation
+- Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: hybrid shared service and `dist/game_minions-in-32k.zip`
 - Handout SHA-256: `6fd7624e24b75b12fc95dcdee18a4ce75b9d54e0509f39a5694f173b3c0c980e`
-- Runtime image: local `sha256:a23cb6eafc0c8621af67db5f45dcbb7fa983e293203cac264e54d4b29312c951`
-- Backend: local Docker arena; checked 2026-08-27 UTC by Codex; hidden rsctf staging and bridge rehearsal still required
+- Runtime image: local `sha256:39922f87a75befe1870fc61d608570ef4d80ee402949040227a377ccedc6f1b5`
+- Backend: local Docker arena; checked 2026-08-28 UTC by Codex; hidden rsctf managed-reporting and gateway rehearsal still required
 - Solver command: `python3 solution/solve.py --host TARGET --port UDP_PORT --key ARENA_KEY --cert-hash CERT_SHA256`
 - Playtest: no uncontaminated report for this candidate revision
 
@@ -30,12 +30,13 @@ objective-aware navigation, and player-driven combat.
 - The exact `game_minions-in-32k.zip` handout with Linux and Windows clients, notices,
   licenses, and corresponding public source.
 - The public challenge description and secure event lobby.
-- The team's current KotH capability, exchanged by the trusted bridge for an arena key and
-  pinned certificate hash.
-- The bridge's issued UDP endpoint.
+- The team's current KotH capability, passed through the transport gateway and exchanged by
+  the managed target for an arena key and pinned certificate hash.
+- The gateway's issued UDP endpoint.
 
-The player does not receive the bridge secret file, internal report authenticator, observer
-state, another team's key, or the organizer reference client.
+The player does not receive the managed reporter credential, internal child-report
+authenticator, another team's key, or the organizer reference client. The stateless gateway
+has none of those values.
 
 ## Walkthrough
 
@@ -50,7 +51,7 @@ state, another team's key, or the organizer reference client.
 5. Keep combat, movement, and confirmation decisions synchronized with authoritative public
    state. Old protocol clients and combat-only bots leave most scoring value unconfirmed.
 6. Sustain the best confirmed-kill result across official scoring legs and verify the final
-   bridge-backed rsctf standing.
+   target-reported rsctf standing.
 
 ## Why it works
 
@@ -59,11 +60,12 @@ state, and minute deltas. Confirmation changes the scoring evidence only when th
 role reaches the correct live objective. Client-side visibility or aim changes cannot forge
 that authoritative transition.
 
-The target derives its internal bridge authenticator from runtime-only platform material and
-generates a short-lived TLS identity at startup. The separately deployed bridge exchanges
-event-scoped KotH capabilities, relays encrypted UDP, filters scoring-eligible identities,
-and submits signed wave evidence. NPC rows remain exhibition-only and cannot receive rsctf
-credit or the Crown.
+The target receives a lifecycle-bound rsctf reporter credential and generates a short-lived
+TLS identity at startup. Its supervisor authenticates event-scoped KotH capabilities,
+derives deterministic per-target arena credentials for the eligible hashes, validates child
+reports and replays, excludes NPC rows, and submits signed native wave evidence. The
+separately deployed gateway only forwards the capability request and relays encrypted UDP;
+it owns no roster or scoring state.
 
 ## Solver
 
@@ -100,7 +102,7 @@ kill confirmed
 [+] Observed kill confirmed
 ```
 
-On 2026-08-27 UTC, the rebuilt image reached Docker health under the CI sandbox, the rsctf
+On 2026-08-28 UTC, the rebuilt image reached Docker health under the CI sandbox, the rsctf
 checker returned OK through its published HTTP port, and the documented solver observed a
 fresh authoritative confirmation through the published UDP port. The writeup remains draft
 because that local run is not a committed hidden-staging rehearsal.
@@ -111,7 +113,8 @@ not retained.
 ## Notes
 
 - Keep the writeup `draft` until the exact committed image and handout are reproduced by a
-  second maintainer and the bridge completes a multi-team hidden-staging rehearsal.
+  second maintainer and managed reporting plus the gateway complete a multi-team
+  hidden-staging rehearsal, including credential rotation on target reset.
 - The headless reference client is organizer regression tooling. Event policy requires a
   player-driven match; unattended automation is not scoring-eligible evidence.
 - Based on Project Sekai CTF 2026 `Minions in 16K` at commit

@@ -19,6 +19,11 @@ receives.
    author build logs and administration outside the room.
 4. Rebuild the exact player artifact or issue a redacted target. Hash handouts. For BYOC,
    use the exact team setup/image flow and only the team-owned controls available in-event.
+5. For managed Leaderboard KotH, prepare the target through hidden rsctf staging rather than
+   a standalone observer. Before opening the blind room, confirm an actual completed wave is
+   accepted, a target reset rotates the reporter credential, and any transport `gateway/`
+   works without receiving scoring state or secrets. Keep all of that organizer evidence out
+   of the player brief and room.
 
 ## Create the room
 

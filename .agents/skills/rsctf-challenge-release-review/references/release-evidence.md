@@ -26,8 +26,11 @@
 - KotH checks do not read or alter the marker/API control source; attribution and scoring use
   the selected frozen source.
 - Deterministic generators build and return byte-identical valid output for identical input.
-- API observers keep secrets/state outside player workloads and fail closed on context/feed
-  errors.
+- Managed KotH reporters receive a target/reset-bound credential at runtime, filter it from
+  child processes, submit only bounded native evidence, fail closed on malformed context or
+  acknowledgements, and reject stale lifecycle credentials after reset.
+- A transport `gateway/`, when unavoidable, has no reporter secret, roster/scoring state, or
+  rsctf scoring access and is tested in both protocol directions.
 - BYOC exercises exact image/setup delivery, relay reachability, flag delivery, resets, and
   team isolation on the intended topology.
 

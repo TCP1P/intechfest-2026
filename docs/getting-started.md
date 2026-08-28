@@ -44,8 +44,8 @@ The current packages are examples of this repository's actual delivery model:
 
 | Package | Contract | Reuse it when |
 | --- | --- | --- |
-| `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, independent Python observer | a Leaderboard KotH arena uses a separate signed API observer |
-| `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, independent Go bridge | a Leaderboard KotH arena needs a trusted relay and scoring bridge |
+| `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |
+| `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, optional transport gateway | a managed target reports evidence but needs HTTPS/UDP adaptation |
 
 These are not generic Jeopardy or A&D templates. For a new mode, use the
 [authoring contract](authoring-contract.md) and [manifest reference](configuration.md), then
@@ -62,7 +62,7 @@ events/<event>/challenges/<mode>/<category>/<slug>/
 ├── src/                 # direct Docker build context, when applicable
 ├── checker/             # required for A&D and KotH
 ├── generator/           # deterministic variant generator, when applicable
-├── observer/            # separately deployed trusted infrastructure, when applicable
+├── gateway/             # transport-only adapter, only when the protocol requires it
 └── solution/            # required tracked organizer material
     ├── README.md
     └── solve.py
@@ -80,9 +80,9 @@ When copying a nearby package:
    challenge. Do not retain copied behavior or lore.
 4. Omit `minScoreRate`, `difficulty`, and `submissionLimit` when rsctf defaults are intended.
    These Jeopardy fields do not belong on A&D or KotH manifests.
-5. Put only player-visible bytes in `dist/`; keep service build input in `src/`, trusted
-   checkers in `checker/`, independent infrastructure in `observer/`, and organizer material
-   in `solution/`.
+5. Put only player-visible bytes in `dist/`; keep service and managed reporting code in
+   `src/`, trusted checks in `checker/`, unavoidable transport adaptation in `gateway/`, and
+   organizer material in `solution/`.
 6. Adapt the canonical checker to the ordinary player-visible protocol. Keep every check
    bounded, read-only, and order-independent.
 7. Replace both solution templates with the real intended path as soon as it is testable.

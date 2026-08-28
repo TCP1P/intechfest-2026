@@ -35,9 +35,9 @@ esac
 case "${RSCTF_CHALLENGE_ID:-}" in
   ''|*[!0-9]*) exit 1 ;;
 esac
-bridge_digest=${MINIONS_BRIDGE_IMAGE#sha256:}
-[ "${#bridge_digest}" -eq 64 ] || exit 1
-case "$bridge_digest" in
+gateway_digest=${MINIONS_GATEWAY_IMAGE#sha256:}
+[ "${#gateway_digest}" -eq 64 ] || exit 1
+case "$gateway_digest" in
   *[!0-9a-f]*) exit 1 ;;
 esac
 game_id=$RSCTF_GAME_ID
@@ -76,9 +76,9 @@ remaining=${target#*|}
 target_container=${remaining%%|*}
 target_phase=${remaining#*|}
 
-deactivate_bridge() {
-  if docker inspect rsctf-minions-bridge >/dev/null 2>&1; then
-    printf 'Minions reconcile: removing bridge without an active target\n'
+deactivate_gateway() {
+  if docker inspect rsctf-minions-gateway >/dev/null 2>&1; then
+    printf 'Minions reconcile: removing gateway without an active target\n'
     docker compose \
       --env-file "$active_event" \
       --project-name rsctf-minions \
@@ -88,7 +88,7 @@ deactivate_bridge() {
 }
 
 [ -n "$target" ] || {
-  deactivate_bridge
+  deactivate_gateway
   exit 0
 }
 
@@ -102,7 +102,7 @@ esac
 case "$target_phase" in
   Active|Warm) ;;
   *)
-    deactivate_bridge
+    deactivate_gateway
     exit 0
     ;;
 esac
@@ -111,7 +111,7 @@ case "$target_container" in
   *[!0-9a-f]*) exit 1 ;;
 esac
 if [ "$(docker inspect "$target_container" --format '{{.State.Running}}' 2>/dev/null || :)" != true ]; then
-  deactivate_bridge
+  deactivate_gateway
   exit 0
 fi
 
@@ -128,26 +128,22 @@ environment_value() {
     sed -n "s/^$2=//p"
 }
 
-current_host=$(environment_value rsctf-minions-bridge MINIONS_UPSTREAM)
-current_target=$(environment_value rsctf-minions-bridge MINIONS_TARGET_ID)
-current_game=$(environment_value rsctf-minions-bridge RSCTF_GAME_ID)
-current_challenge=$(environment_value rsctf-minions-bridge RSCTF_CHALLENGE_ID)
-current_image=$(docker inspect rsctf-minions-bridge \
+current_host=$(environment_value rsctf-minions-gateway MINIONS_UPSTREAM)
+current_target=$(environment_value rsctf-minions-gateway MINIONS_TARGET_ID)
+current_image=$(docker inspect rsctf-minions-gateway \
   --format '{{.Image}}' 2>/dev/null || :)
-current_project=$(docker inspect rsctf-minions-bridge \
+current_project=$(docker inspect rsctf-minions-gateway \
   --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || :)
 
 if [ "$current_host" = "$target_host:4433" ] &&
   [ "$current_target" = "$target_container" ] &&
-  [ "$current_game" = "$game_id" ] &&
-  [ "$current_challenge" = "$challenge_id" ] &&
-  [ "$current_image" = "$MINIONS_BRIDGE_IMAGE" ] &&
+  [ "$current_image" = "$MINIONS_GATEWAY_IMAGE" ] &&
   [ "$current_project" = rsctf-minions ] &&
-  container_running rsctf-minions-bridge; then
-  if container_healthy rsctf-minions-bridge; then
+  container_running rsctf-minions-gateway; then
+  if container_healthy rsctf-minions-gateway; then
     exit 0
   fi
-  printf 'Minions reconcile: replacing unhealthy bridge for target %s\n' \
+  printf 'Minions reconcile: replacing unhealthy gateway for target %s\n' \
     "$(printf '%s' "$target_container" | cut -c1-12)"
 else
   printf 'Minions reconcile: activating target %s\n' \
@@ -161,7 +157,7 @@ trap 'rm -f "$temporary_event"' 0 HUP INT TERM
   printf 'RSCTF_CHALLENGE_ID=%s\n' "$challenge_id"
   printf 'MINIONS_UPSTREAM=%s\n' "$target_host"
   printf 'MINIONS_TARGET_ID=%s\n' "$target_container"
-  printf 'MINIONS_BRIDGE_IMAGE=%s\n' "$MINIONS_BRIDGE_IMAGE"
+  printf 'MINIONS_GATEWAY_IMAGE=%s\n' "$MINIONS_GATEWAY_IMAGE"
 } > "$temporary_event"
 chmod 600 "$temporary_event"
 mv "$temporary_event" "$active_event"
@@ -170,7 +166,7 @@ trap - 0 HUP INT TERM
 # Values sourced at startup take precedence over --env-file interpolation in
 # Docker Compose. Publish the newly selected target into this process as well,
 # otherwise the first reconciliation after a crown rotation recreates the
-# bridge against the previous target and a second timer pass is required.
+# gateway against the previous target and a second timer pass is required.
 MINIONS_UPSTREAM=$target_host
 MINIONS_TARGET_ID=$target_container
 export MINIONS_UPSTREAM MINIONS_TARGET_ID
@@ -179,4 +175,4 @@ docker compose \
   --env-file "$active_event" \
   --project-name rsctf-minions \
   --file "$compose_file" \
-  up -d --force-recreate --remove-orphans --wait --wait-timeout 120 bridge
+  up -d --force-recreate --remove-orphans --wait --wait-timeout 120 gateway

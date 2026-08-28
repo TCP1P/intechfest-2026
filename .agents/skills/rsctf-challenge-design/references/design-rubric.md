@@ -13,7 +13,7 @@ Record these facts before implementation:
 | initial inputs | exact public copy, target shape, files, credentials, and rules |
 | objective | capability or information the player must obtain |
 | flag/control path | static, injected, rotating file, variant, marker, or signed API |
-| runtime owner | rsctf, team BYOC host, independent observer, or none |
+| runtime owner | rsctf-managed target, team BYOC host, optional transport gateway, or none |
 | intended boundaries | ordered identities, trust zones, or technical properties crossed |
 | difficulty target | prerequisite skills and expected active solve-time range |
 | non-goals | features and mechanics intentionally excluded |

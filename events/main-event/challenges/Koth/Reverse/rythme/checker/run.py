@@ -14,7 +14,7 @@ RULESETS = {"osu", "taiko", "fruits", "mania"}
 PHASES = ("enrollment", "reveal", "running", "submission", "results")
 HEX_64 = re.compile(r"^[0-9a-fA-F]{64}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-EXPECTED_BUILD = "2026.08.21.1"
+EXPECTED_BUILD = "2026.08.28.1"
 
 
 def get_json(host: str, port: int, path: str) -> dict:
@@ -319,7 +319,7 @@ def check_state_clock(context: KothContext) -> None:
     if not valid_state(state):
         raise Mumble("the coordinator state contract changed")
     # A second independent sample catches a frozen clock without mutating a
-    # session, wave, Crown, or signed observer input.
+    # session, wave, Crown, or managed reporting input.
     time.sleep(0.02)
     follow_up = get_json(context.target_ip, context.target_port, "/api/v1/state")
     if (

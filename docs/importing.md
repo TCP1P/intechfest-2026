@@ -19,7 +19,7 @@ test below.
 
 Also inspect the committed tree, not only the working directory. Each package intentionally
 tracks `solution/README.md` and `solution/solve.py`. Repository readers can see them, but they
-must not enter `provide`, a Docker context, generated player content, an observer bundle, or a
+must not enter `provide`, a Docker context, generated player content, a gateway bundle, or a
 blind-playtest room. Keep real pre-event repository access restricted and keep live secrets
 out of Git entirely.
 
@@ -83,7 +83,8 @@ edits can change. Git is the source of truth for challenge configuration.
 
 Never casually rescan a running event. Rehearse the exact rescan on staging, account
 for any IDs used by external automation, and confirm that all rebuilt services,
-checkers, variants, and referees still refer to the new imported challenge records.
+checkers, variants, managed reporters, and gateway reconciliation still refer to the new
+imported challenge records.
 
 Event settings from `.gzevent` seed the game on its first import. Later scans preserve
 operator changes such as the real schedule, which is why Git and Admin state must both

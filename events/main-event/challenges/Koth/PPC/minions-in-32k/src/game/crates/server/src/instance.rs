@@ -302,9 +302,9 @@ pub async fn report_worker(
     let mut accepted = true;
     while let Some(report) = reports.recv().await {
         // Replay the complete ordered prefix whenever a new leg is ready. The
-        // bridge treats identical reports as idempotent, so this also rebuilds
+        // supervisor treats identical reports as idempotent, so this also rebuilds
         // its in-memory sequence after a restart without delaying the game loop
-        // or requiring durable credentials/report state on the bridge host.
+        // or requiring durable credentials/report state outside the target.
         let batch = report_replay_batch(&mut history, report);
         accepted = true;
         for report in &batch {
