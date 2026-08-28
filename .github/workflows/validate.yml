@@ -30,13 +30,13 @@ jobs:
 
       - name: Validate warmup manifests with rsctf
         id: warmup
-        uses: dimasma0305/rsctf@main
+        uses: dimasma0305/rsctf@v0.1.93
         with:
           path: events/warmup
 
       - name: Validate main-event manifests with rsctf
         id: main_event
-        uses: dimasma0305/rsctf@main
+        uses: dimasma0305/rsctf@v0.1.93
         with:
           path: events/main-event
 
