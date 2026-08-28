@@ -188,6 +188,7 @@ jobs:
             --pids-limit 512 \
             --memory 768m \
             --env 'RSCTF_FLAG=rsctf{ci_healthcheck_seed_0000000000000000}' \
+            --env 'MINIONS_PUBLIC_REMOTE=127.0.0.1:4532' \
             --env 'RYTHME_STATE_PATH=/tmp/rythme-arena.json' \
             --env 'RYTHME_BEATMAP_DIR=/tmp/beatmaps' \
             "$IMAGE")"
