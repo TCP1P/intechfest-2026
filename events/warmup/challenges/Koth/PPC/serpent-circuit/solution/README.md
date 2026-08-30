@@ -6,7 +6,8 @@
 ## Verification record
 
 - Status: `draft`
-- Revision: working tree; record the full commit before freezing
+- Candidate source revision: `50a78fa14ad8386f29398696a32801f6588af039`;
+  freeze only after hidden staging
 - Challenge type: `KingOfTheHill`, managed Leaderboard scoring
 - Delivery: shared HTTP service
 - Artifact or image: local image
