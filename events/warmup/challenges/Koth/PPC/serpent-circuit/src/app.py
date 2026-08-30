@@ -18,6 +18,9 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 import urllib.parse
 
+from capability_auth import CapabilityAuthenticator
+from capability_auth import CapabilityRejected
+from capability_auth import CapabilityUnavailable
 from http_transport import BoundedReader as _BoundedReader
 from http_transport import BoundedThreadingHTTPServer
 from reporter import load_config as load_reporter_config
@@ -118,6 +121,26 @@ class ManagedContext:
     refreshed_at: float
 
 
+@dataclass(frozen=True)
+class CapabilityCandidate:
+    token_hash: str
+    context: ManagedContext | None
+    config: CapabilityConfig | None
+
+
+@dataclass(frozen=True)
+class SessionAdmission:
+    server_time_ms: int
+    wave_start_ms: int
+    wave_end_ms: int
+    turns: tuple[tuple[int, int], ...]
+    context_opaque: str | None
+    cycle_number: int
+    reset_attempt: int
+    run_key: tuple[int, str, int, int]
+    admission_key: tuple[int, int, int]
+
+
 state_lock = threading.Lock()
 sessions: OrderedDict[str, Session] = OrderedDict()
 started_runs: OrderedDict[tuple[int, str, int, int], str] = OrderedDict()
@@ -127,6 +150,7 @@ next_cursor = 1
 managed_context_lock = threading.Lock()
 managed_context: ManagedContext | None = None
 reporter_runtime = ReporterRuntime()
+capability_authenticator = CapabilityAuthenticator()
 
 
 def now_ms() -> int:
@@ -298,6 +322,32 @@ def scoring_ready() -> bool:
     return True
 
 
+def health_document() -> tuple[int, dict[str, object]]:
+    """Return a startup-tolerant health verdict with persistent failures visible."""
+    mode = runtime_mode()
+    reporter, reporter_healthy = reporter_runtime.health_snapshot()
+    ready = scoring_ready()
+    healthy = mode != "misconfigured"
+    if mode == "managed":
+        # A normal context rotation briefly revokes gameplay while the reporter
+        # submits the replacement snapshot. That is readiness, not a liveness
+        # failure. Persistent retries or a dead reporter still fail health.
+        healthy = reporter_healthy
+    return (
+        200 if healthy else 503,
+        {
+            "mode": mode,
+            "name": NAME,
+            "protocol": PROTOCOL,
+            "reporter": reporter,
+            "scoringReady": ready,
+            "status": "ok" if healthy else "error",
+            "turnCount": TURN_COUNT,
+            "waveSeconds": WAVE_SECONDS,
+        },
+    )
+
+
 def publish_managed_context(context: RoundContext | None) -> None:
     """Atomically publish only a context that rsctf accepted for scoring."""
     global managed_context
@@ -338,23 +388,52 @@ def _current_managed_context() -> ManagedContext:
     return context
 
 
-def authenticate_capability(token: str) -> tuple[str, ManagedContext | None] | None:
-    """Validate a capability against rsctf's current, context-fenced roster."""
+def _capability_candidate(token: str) -> CapabilityCandidate | None:
+    """Reject malformed/non-roster values before any platform request."""
     if not TOKEN_PATTERN.fullmatch(token):
         return None
     config = capability_config()
     if config is None:
         if local_development_enabled():
-            return hashlib.sha256(token.encode()).hexdigest(), None
+            return CapabilityCandidate(
+                token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                context=None,
+                config=None,
+            )
         raise GameError(503, "managed gameplay is not configured")
-    # The reporter context contains only SHA-256 capability digests. Checking
-    # locally avoids putting every team's exchange behind rsctf's shared-source
-    # anonymous rate limit, while the opaque context still fences rotations.
+    # Reject non-roster hashes before the authenticated platform call. This
+    # prevents arbitrary token guesses from amplifying into control-plane work;
+    # the bounded authenticator still confirms every admitted player identity.
     context = _current_managed_context()
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     if token_hash not in context.eligible_hashes:
         return None
-    return token_hash, context
+    return CapabilityCandidate(
+        token_hash=token_hash,
+        context=context,
+        config=config,
+    )
+
+
+def _confirm_capability(token: str, candidate: CapabilityCandidate) -> None:
+    """Confirm a new managed session against RSCTF's live auth boundary."""
+    if candidate.config is None:
+        return
+    if candidate.context is None:
+        raise GameError(503, "managed gameplay is misconfigured")
+    try:
+        capability_authenticator.authenticate(
+            platform_url=candidate.config.platform_url,
+            game_id=candidate.config.game_id,
+            challenge_id=candidate.config.challenge_id,
+            token=token,
+            token_hash=candidate.token_hash,
+            context=candidate.context.opaque,
+        )
+    except CapabilityRejected as error:
+        raise GameError(403, "invalid current KotH capability") from error
+    except CapabilityUnavailable as error:
+        raise GameError(503, "capability authentication is temporarily unavailable") from error
 
 
 def _session_document(
@@ -403,59 +482,85 @@ def _prune_state(timestamp_ms: int) -> None:
             wave_admissions.pop(key, None)
 
 
+def _session_admission_locked(
+    candidate: CapabilityCandidate,
+    timestamp_ms: int,
+) -> SessionAdmission:
+    context = candidate.context
+    if context is not None:
+        current_context = _current_managed_context()
+        if (
+            current_context.opaque != context.opaque
+            or current_context.cycle_number != context.cycle_number
+            or current_context.reset_attempt != context.reset_attempt
+            or candidate.token_hash not in current_context.eligible_hashes
+        ):
+            raise GameError(503, "the scoring roster changed; retry the request")
+        context = current_context
+
+    start_ms = wave_start(timestamp_ms)
+    end_ms = start_ms + WAVE_DURATION_MS
+    if context is not None and start_ms < context.first_scorable_wave_start:
+        raise GameError(409, "wait for the first complete scoring wave")
+    if context is not None and end_ms > context.final_scoring_cutoff:
+        raise GameError(409, "the event ends before another complete scoring wave")
+
+    cycle_number = context.cycle_number if context else 0
+    reset_attempt = context.reset_attempt if context else 0
+    _prune_state(timestamp_ms)
+    return SessionAdmission(
+        server_time_ms=timestamp_ms,
+        wave_start_ms=start_ms,
+        wave_end_ms=end_ms,
+        turns=turn_pairs(start_ms),
+        context_opaque=context.opaque if context else None,
+        cycle_number=cycle_number,
+        reset_attempt=reset_attempt,
+        run_key=(start_ms, candidate.token_hash, cycle_number, reset_attempt),
+        admission_key=(start_ms, cycle_number, reset_attempt),
+    )
+
+
+def _existing_session_locked(admission: SessionAdmission) -> dict[str, object] | None:
+    session_id = started_runs.get(admission.run_key)
+    if session_id is None:
+        return None
+    session = sessions.get(session_id)
+    if session is None:
+        raise GameError(503, "the prior session is temporarily unavailable")
+    return _session_document(session_id, session, admission.server_time_ms)
+
+
 def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, object]:
-    authenticated = authenticate_capability(token)
-    if authenticated is None:
+    candidate = _capability_candidate(token)
+    if candidate is None:
         raise GameError(403, "invalid current KotH capability")
-    token_hash, admitted_context = authenticated
+
+    # A retry for an already-authenticated team-wave is safe to return after
+    # revalidating the live context. A genuinely new session must cross RSCTF's
+    # current authentication boundary, even if an earlier request succeeded.
+    with state_lock:
+        preflight_time = now_ms() if timestamp_ms is None else timestamp_ms
+        preflight = _session_admission_locked(candidate, preflight_time)
+        existing = _existing_session_locked(preflight)
+        if existing is not None:
+            return existing
+
+    _confirm_capability(token, candidate)
 
     with state_lock:
         timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
-        if admitted_context is not None:
-            current_context = _current_managed_context()
-            if (
-                current_context.opaque != admitted_context.opaque
-                or token_hash not in current_context.eligible_hashes
-            ):
-                raise GameError(503, "the scoring roster changed; retry the request")
-        start_ms = wave_start(timestamp_ms)
-        end_ms = start_ms + WAVE_DURATION_MS
-        if (
-            admitted_context is not None
-            and start_ms < admitted_context.first_scorable_wave_start
-        ):
-            raise GameError(409, "wait for the first complete scoring wave")
-        if (
-            admitted_context is not None
-            and end_ms > admitted_context.final_scoring_cutoff
-        ):
-            raise GameError(409, "the event ends before another complete scoring wave")
-        pairs = turn_pairs(start_ms)
-        _prune_state(timestamp_ms)
-        run_key = (
-            start_ms,
-            token_hash,
-            admitted_context.cycle_number if admitted_context else 0,
-            admitted_context.reset_attempt if admitted_context else 0,
-        )
-        if run_key in started_runs:
-            session_id = started_runs[run_key]
-            session = sessions.get(session_id)
-            if session is None:
-                raise GameError(503, "the prior session is temporarily unavailable")
-            return _session_document(session_id, session, timestamp_ms)
-        admission_key = (
-            start_ms,
-            admitted_context.cycle_number if admitted_context else 0,
-            admitted_context.reset_attempt if admitted_context else 0,
-        )
-        wave_rows = wave_admissions.get(admission_key, 0)
+        admission = _session_admission_locked(candidate, timestamp_ms)
+        existing = _existing_session_locked(admission)
+        if existing is not None:
+            return existing
+        wave_rows = wave_admissions.get(admission.admission_key, 0)
         active_rows = sum(
             count
             for (wave, cycle_number, reset_attempt), count in wave_admissions.items()
-            if wave >= start_ms - WAVE_DURATION_MS
-            and cycle_number == admission_key[1]
-            and reset_attempt == admission_key[2]
+            if wave >= admission.wave_start_ms - WAVE_DURATION_MS
+            and cycle_number == admission.cycle_number
+            and reset_attempt == admission.reset_attempt
         )
         if (
             active_rows >= MAX_ACTIVE_TEAM_WAVE_ADMISSIONS
@@ -468,16 +573,16 @@ def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, obj
         while session_id in sessions:
             session_id = secrets.token_urlsafe(24)
         sessions[session_id] = Session(
-            token_hash=token_hash,
-            wave_start_ms=start_ms,
-            wave_end_ms=end_ms,
-            turns=pairs,
-            context_opaque=(admitted_context.opaque if admitted_context else None),
-            cycle_number=(admitted_context.cycle_number if admitted_context else 0),
-            reset_attempt=(admitted_context.reset_attempt if admitted_context else 0),
+            token_hash=candidate.token_hash,
+            wave_start_ms=admission.wave_start_ms,
+            wave_end_ms=admission.wave_end_ms,
+            turns=admission.turns,
+            context_opaque=admission.context_opaque,
+            cycle_number=admission.cycle_number,
+            reset_attempt=admission.reset_attempt,
         )
-        started_runs[run_key] = session_id
-        wave_admissions[admission_key] = wave_rows + 1
+        started_runs[admission.run_key] = session_id
+        wave_admissions[admission.admission_key] = wave_rows + 1
         response = _session_document(session_id, sessions[session_id], timestamp_ms)
 
     return response
@@ -684,19 +789,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "query parameters are not accepted"})
             return
         if request.path == "/healthz":
-            self._json(
-                200,
-                {
-                    "mode": runtime_mode(),
-                    "name": NAME,
-                    "protocol": PROTOCOL,
-                    "reporter": reporter_runtime.snapshot(),
-                    "scoringReady": scoring_ready(),
-                    "status": "ok",
-                    "turnCount": TURN_COUNT,
-                    "waveSeconds": WAVE_SECONDS,
-                },
-            )
+            status, document = health_document()
+            self._json(status, document)
             return
         if request.path == "/api/rules":
             self._json(200, rules_document())

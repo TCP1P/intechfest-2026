@@ -27,8 +27,12 @@ WAVE_FINALIZATION_LAG_MS = 2_000
 LEGACY_SETTLEMENT_LAG_MS = 20_000
 CONTEXT_MAX_AGE_MS = 8_000
 CONTEXT_MAX_FUTURE_MS = 5_000
+HEALTH_FAILURE_THRESHOLD = 3
+HEALTH_FAILURE_GRACE_SECONDS = 15.0
 USER_AGENT = "serpent-circuit-managed-reporter/1"
 OBJECTIVE_IDS = ("route-efficiency",)
+INACTIVE_CONTEXT_TITLE = "Leaderboard KotH context is not active"
+CHANGED_CONTEXT_TITLE = "Leaderboard KotH context changed; fetch context and retry"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -46,6 +50,11 @@ class ReporterHttpError(RuntimeError):
     def __init__(self, status: int, detail: str):
         super().__init__(f"HTTP {status}: {detail}")
         self.status = status
+        self.detail = detail
+
+
+class ReporterInactive(ReporterHttpError):
+    """RSCTF confirms an exact inactive/reset/context-rotation gap."""
 
 
 class ReporterRuntime:
@@ -55,54 +64,112 @@ class ReporterRuntime:
         self._lock = threading.Lock()
         self._state = "stopped"
         self._failures = 0
+        self._state_since = time.monotonic()
+        self._first_failure_at: float | None = None
         self._thread: threading.Thread | None = None
 
     def set_stopped(self, *, failed: bool = False) -> None:
         with self._lock:
             self._state = "stopped"
             self._failures = 1 if failed else 0
+            self._state_since = time.monotonic()
+            self._first_failure_at = self._state_since if failed else None
             self._thread = None
 
     def set_disabled(self) -> None:
         with self._lock:
             self._state = "disabled"
             self._failures = 0
+            self._state_since = time.monotonic()
+            self._first_failure_at = None
             self._thread = None
 
     def attach(self, thread: threading.Thread) -> None:
         with self._lock:
             self._state = "starting"
             self._failures = 0
+            self._state_since = time.monotonic()
+            self._first_failure_at = None
             self._thread = thread
 
     def mark_ready(self) -> None:
         with self._lock:
             self._state = "ready"
             self._failures = 0
+            self._state_since = time.monotonic()
+            self._first_failure_at = None
 
     def mark_waiting(self) -> None:
         with self._lock:
             self._state = "waiting"
             self._failures = 0
+            self._state_since = time.monotonic()
+            self._first_failure_at = None
+
+    def mark_polling(self) -> None:
+        """Fence a fresh poll so a stuck control-plane read becomes unhealthy."""
+        with self._lock:
+            if self._failures == 0:
+                self._state = "starting"
+                self._state_since = time.monotonic()
 
     def mark_retrying(self) -> None:
         with self._lock:
+            if self._state != "retrying":
+                self._state_since = time.monotonic()
             self._state = "retrying"
+            if self._failures == 0:
+                self._first_failure_at = time.monotonic()
             self._failures = min(self._failures + 1, 2**31 - 1)
 
-    def snapshot(self) -> dict[str, object]:
+    def health_snapshot(
+        self,
+        current_time: float | None = None,
+    ) -> tuple[dict[str, object], bool]:
+        """Return one coherent public snapshot and its liveness verdict."""
         with self._lock:
             state = self._state
             failures = self._failures
+            state_since = self._state_since
+            first_failure_at = self._first_failure_at
             thread = self._thread
         alive = thread.is_alive() if thread is not None else False
         if thread is not None and thread.ident is not None and not alive:
             state = "stopped"
-        return {
+
+        document = {
             "alive": alive,
             "consecutiveFailures": failures,
             "state": state,
         }
+        if state == "stopped":
+            return document, False
+        if state in {"waiting", "ready", "retrying"} and not alive:
+            return document, False
+        if state in {"disabled", "waiting", "ready"}:
+            return document, True
+        current_time = time.monotonic() if current_time is None else current_time
+        if state == "starting":
+            return (
+                document,
+                current_time - state_since < HEALTH_FAILURE_GRACE_SECONDS,
+            )
+        if state != "retrying" or first_failure_at is None:
+            return document, failures == 0
+        # A fast run of failures and one long-lived failure are both persistent.
+        # This also keeps the health document aligned with the checker, which
+        # accepts at most two consecutive retry failures on an HTTP 200 response.
+        return document, (
+            failures < HEALTH_FAILURE_THRESHOLD
+            and current_time - first_failure_at < HEALTH_FAILURE_GRACE_SECONDS
+        )
+
+    def is_healthy(self, current_time: float | None = None) -> bool:
+        """Tolerate startup/transient retries, but surface persistent failure."""
+        return self.health_snapshot(current_time)[1]
+
+    def snapshot(self) -> dict[str, object]:
+        return self.health_snapshot()[0]
 
 
 @dataclass(frozen=True)
@@ -272,8 +339,27 @@ def _request_json(request: urllib.request.Request, timeout: float) -> dict[str, 
             content_type = response.headers.get_content_type()
             body = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as error:
-        raw_detail = error.read(2_048).decode("utf-8", errors="replace").strip()
-        detail = raw_detail.encode("unicode_escape").decode("ascii")[:512]
+        raw_detail = error.read(2_048)
+        detail = "request rejected"
+        try:
+            decoded_detail = json.loads(raw_detail)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            escaped = raw_detail.decode("utf-8", errors="replace").strip()
+            detail = escaped.encode("unicode_escape").decode("ascii")[:512] or detail
+        else:
+            if (
+                error.headers is not None
+                and error.headers.get_content_type() == "application/json"
+                and isinstance(decoded_detail, dict)
+                and set(decoded_detail) == {"status", "title"}
+                and isinstance(decoded_detail["status"], int)
+                and not isinstance(decoded_detail["status"], bool)
+                and decoded_detail["status"] == error.code
+                and isinstance(decoded_detail["title"], str)
+                and 0 < len(decoded_detail["title"]) <= 512
+                and all(ord(character) >= 32 for character in decoded_detail["title"])
+            ):
+                detail = decoded_detail["title"]
         raise ReporterHttpError(error.code, detail or "request rejected") from error
     if status != 200:
         raise ReporterHttpError(status, "expected HTTP 200")
@@ -335,7 +421,12 @@ class ManagedReporter:
         return _request_json(request, self.config.timeout_seconds)
 
     def fetch_context(self) -> RoundContext:
-        value = self._get_json(self.config.context_url)
+        try:
+            value = self._get_json(self.config.context_url)
+        except ReporterHttpError as error:
+            if error.status == 409 and error.detail == INACTIVE_CONTEXT_TITLE:
+                raise ReporterInactive(409, error.detail) from error
+            raise
         expected = {
             "apiVersion",
             "context",
@@ -724,7 +815,15 @@ class ManagedReporter:
                 "X-RSCTF-Signature": f"sha256={signature}",
             },
         )
-        value = _request_json(request, self.config.timeout_seconds)
+        try:
+            value = _request_json(request, self.config.timeout_seconds)
+        except ReporterHttpError as error:
+            if error.status == 409 and error.detail in {
+                CHANGED_CONTEXT_TITLE,
+                INACTIVE_CONTEXT_TITLE,
+            }:
+                raise ReporterInactive(409, error.detail) from error
+            raise
         expected = {
             "accepted",
             "acceptedAt",
@@ -783,14 +882,18 @@ class ManagedReporter:
         )
         try:
             context = self.fetch_context()
-            context_changed = self.context is None or context.opaque != self.context.opaque
+            lifecycle_changed = self.context is not None and (
+                context.cycle_number != self.context.cycle_number
+                or context.reset_attempt != self.context.reset_attempt
+            )
+            context_changed = (
+                self.context is None
+                or context.opaque != self.context.opaque
+                or lifecycle_changed
+            )
             if context_changed:
                 self.publish_context(None)
-                runtime_changed = self.context is not None and (
-                    context.cycle_number != self.context.cycle_number
-                    or context.reset_attempt != self.context.reset_attempt
-                )
-                if runtime_changed:
+                if lifecycle_changed:
                     self.waves = {}
                     self.finalized_crowns = {}
                 self.context = context
@@ -869,17 +972,18 @@ def start_managed_reporter(
         try:
             while True:
                 try:
+                    runtime.mark_polling()
                     client.poll_once()
                     failures = 0
                     runtime.mark_ready()
                     time.sleep(config.poll_seconds)
+                except ReporterInactive:
+                    client.publish_context(None)
+                    failures = 0
+                    runtime.mark_waiting()
+                    time.sleep(config.poll_seconds)
                 except ReporterHttpError as error:
                     client.publish_context(None)
-                    if error.status == 409:
-                        failures = 0
-                        runtime.mark_waiting()
-                        time.sleep(config.poll_seconds)
-                        continue
                     failures += 1
                     runtime.mark_retrying()
                     print(f"managed reporter error: {error}", flush=True)

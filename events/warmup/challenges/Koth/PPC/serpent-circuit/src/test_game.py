@@ -1,6 +1,7 @@
 """Regression tests for the authoritative Serpent Circuit game state."""
 
 import hashlib
+from contextlib import redirect_stderr
 from http.client import HTTPConnection
 import io
 import json
@@ -14,10 +15,11 @@ import socket
 import time
 import unittest
 from unittest.mock import patch
-from threading import Thread
+from threading import Event, Thread
 
 import app
 import http_transport
+import reporter
 
 
 LOCAL_TOKEN = "koth_local_player_12345"
@@ -41,6 +43,13 @@ class GameTests(unittest.TestCase):
             app.next_cursor = 1
         app.publish_managed_context(None)
         app.reporter_runtime.set_stopped()
+        app.capability_authenticator.reset()
+        connection_patcher = patch.object(
+            app.capability_authenticator,
+            "_connect_upstream",
+        )
+        connection_patcher.start()
+        self.addCleanup(connection_patcher.stop)
 
     def test_board_and_dice_sequence_are_deterministic_and_original(self):
         first = app.turn_pairs(1_800_000)
@@ -90,6 +99,55 @@ class GameTests(unittest.TestCase):
             self.assertEqual(app.runtime_mode(), "misconfigured")
             with self.assertRaisesRegex(RuntimeError, "invalid managed reporter"):
                 app.create_session(LOCAL_TOKEN, 1_800_100)
+
+    def test_health_tolerates_startup_but_surfaces_persistent_reporter_failure(self):
+        stop = Event()
+        reporter_thread = Thread(target=stop.wait, daemon=True)
+        app.reporter_runtime.attach(reporter_thread)
+        reporter_thread.start()
+        try:
+            with patch.dict(os.environ, MANAGED_ENV, clear=True):
+                status, document = app.health_document()
+                self.assertEqual(status, 200)
+                self.assertEqual(document["status"], "ok")
+
+                with patch("reporter.time.monotonic", return_value=100.0):
+                    for _index in range(reporter.HEALTH_FAILURE_THRESHOLD):
+                        app.reporter_runtime.mark_retrying()
+                with patch("reporter.time.monotonic", return_value=116.0):
+                    status, document = app.health_document()
+                self.assertEqual(status, 503)
+                self.assertEqual(document["status"], "error")
+                self.assertEqual(
+                    document["reporter"]["consecutiveFailures"],
+                    reporter.HEALTH_FAILURE_THRESHOLD,
+                )
+
+                app.reporter_runtime.mark_waiting()
+                status, document = app.health_document()
+                self.assertEqual(status, 200)
+                self.assertEqual(document["reporter"]["state"], "waiting")
+        finally:
+            stop.set()
+            reporter_thread.join()
+
+    def test_health_tolerates_the_normal_context_rotation_readiness_gap(self):
+        stop = Event()
+        reporter_thread = Thread(target=stop.wait, daemon=True)
+        app.reporter_runtime.attach(reporter_thread)
+        reporter_thread.start()
+        try:
+            app.reporter_runtime.mark_ready()
+            with patch.dict(os.environ, MANAGED_ENV, clear=True):
+                status, document = app.health_document()
+
+            self.assertEqual(status, 200)
+            self.assertTrue(document["reporter"]["alive"])
+            self.assertEqual(document["reporter"]["state"], "ready")
+            self.assertFalse(document["scoringReady"])
+        finally:
+            stop.set()
+            reporter_thread.join()
 
     def test_local_session_creation_and_play_are_idempotent(self):
         timestamp = 1_800_100
@@ -146,6 +204,47 @@ class GameTests(unittest.TestCase):
             with self.assertRaisesRegex(app.GameError, "admission budget") as full:
                 app.create_session(LOCAL_TOKEN, timestamp)
         self.assertEqual(full.exception.status, 503)
+
+    def test_managed_wave_accepts_the_full_2_000_team_roster(self):
+        timestamp = 1_800_100
+        tokens = [f"koth_player_{index:04d}_current" for index in range(2_000)]
+        token_hashes = frozenset(
+            hashlib.sha256(token.encode()).hexdigest() for token in tokens
+        )
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=2_000_000,
+            cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=token_hashes,
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                new=lambda **_kwargs: None,
+            ),
+        ):
+            app.publish_managed_context(context)
+            session_ids = {
+                app.create_session(token, timestamp)["sessionId"]
+                for token in tokens
+            }
+            with self.assertRaises(app.GameError) as outsider:
+                app.create_session("koth_player_2000_current", timestamp)
+
+        self.assertEqual(len(session_ids), 2_000)
+        self.assertEqual(len(app.sessions), 2_000)
+        self.assertEqual(outsider.exception.status, 403)
 
     def test_order_validation_does_not_spend_the_session(self):
         timestamp = 1_800_100
@@ -223,7 +322,7 @@ class GameTests(unittest.TestCase):
             accepted.close()
             server.server_close()
 
-    def test_managed_roster_authentication_is_local_and_lifecycle_fenced(self):
+    def test_managed_roster_authentication_is_platform_confirmed_and_lifecycle_fenced(self):
         timestamp = 1_800_100
         token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
         initial = app.RoundContext(
@@ -241,7 +340,14 @@ class GameTests(unittest.TestCase):
             objective_ids=(app.OBJECTIVE_ID,),
             objective_schema_hash="b" * 64,
         )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                return_value=None,
+            ),
+        ):
             app.publish_managed_context(initial)
             session = app.create_session(LOCAL_TOKEN, timestamp)
             self.assertEqual(session["waveId"], "serpent-1800000")
@@ -287,6 +393,44 @@ class GameTests(unittest.TestCase):
                     app.create_session(LOCAL_TOKEN, 1_800_100)
             self.assertEqual(stale.exception.status, 503)
 
+    def test_new_wave_reauthenticates_after_immediate_platform_revocation(self):
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=2_100_000,
+            cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                side_effect=(
+                    None,
+                    app.CapabilityRejected("revoked by RSCTF"),
+                ),
+            ) as authenticate,
+        ):
+            app.publish_managed_context(context)
+            first = app.create_session(LOCAL_TOKEN, 1_800_100)
+            duplicate = app.create_session(LOCAL_TOKEN, 1_800_200)
+            with self.assertRaises(app.GameError) as revoked:
+                app.create_session(LOCAL_TOKEN, 1_860_100)
+
+        self.assertEqual(duplicate["sessionId"], first["sessionId"])
+        self.assertEqual(revoked.exception.status, 403)
+        self.assertEqual(authenticate.call_count, 2)
+
     def test_cycle_cutoff_rejects_a_partial_final_wave(self):
         token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
         context = app.RoundContext(
@@ -304,7 +448,14 @@ class GameTests(unittest.TestCase):
             objective_ids=(app.OBJECTIVE_ID,),
             objective_schema_hash="b" * 64,
         )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                return_value=None,
+            ),
+        ):
             app.publish_managed_context(context)
             with self.assertRaises(app.GameError) as cutoff:
                 app.create_session(LOCAL_TOKEN, 1_800_100)
@@ -313,7 +464,14 @@ class GameTests(unittest.TestCase):
         permitted = app.RoundContext(
             **{**context.__dict__, "opaque": "c" * 64, "scoring_ends_at": 1_860_000}
         )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                return_value=None,
+            ),
+        ):
             app.publish_managed_context(permitted)
             session = app.create_session(LOCAL_TOKEN, 1_800_100)
         self.assertEqual(session["waveEndsAt"], 1_860_000)
@@ -335,7 +493,14 @@ class GameTests(unittest.TestCase):
             objective_ids=(app.OBJECTIVE_ID,),
             objective_schema_hash="b" * 64,
         )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                return_value=None,
+            ),
+        ):
             app.publish_managed_context(context)
             with self.assertRaises(app.GameError) as initial:
                 app.create_session(LOCAL_TOKEN, 1_830_100)
@@ -396,6 +561,65 @@ class GameTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_health_survives_32_trickling_clients_without_tracebacks(self):
+        clients = []
+        errors = io.StringIO()
+
+        class DeadlineServer(app.Server):
+            read_timeout_seconds = 0.25
+            absolute_request_seconds = 0.75
+            classifier_poll_seconds = 0.005
+
+        with redirect_stderr(errors):
+            server = DeadlineServer(("127.0.0.1", 0), app.Handler)
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for _index in range(32):
+                    client = socket.create_connection(server.server_address, timeout=2)
+                    client.sendall(
+                        b"POST /api/play HTTP/1.1\r\n"
+                        b"Host: arena\r\n"
+                        b"Content-Type: application/json\r\n"
+                        b"Content-Length: 100\r\n\r\n"
+                        b"{"
+                    )
+                    clients.append(client)
+                deadline = time.monotonic() + 2
+                while len(server._admissions) < 32 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(server._admissions), 32)
+
+                for _round in range(2):
+                    time.sleep(0.05)
+                    for client in clients:
+                        try:
+                            client.sendall(b" ")
+                        except OSError:
+                            pass
+
+                connection = HTTPConnection(*server.server_address, timeout=2)
+                connection.request("GET", "/healthz", headers={"Connection": "close"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read())["status"], "ok")
+                connection.close()
+            finally:
+                for client in clients:
+                    try:
+                        client.setsockopt(
+                            socket.SOL_SOCKET,
+                            socket.SO_LINGER,
+                            struct.pack("ii", 1, 0),
+                        )
+                    except OSError:
+                        pass
+                    client.close()
+                server.shutdown()
+                server.server_close()
+                thread.join()
+        self.assertNotIn("Traceback", errors.getvalue())
 
     def test_deadline_thread_failure_releases_admission(self):
         server = app.Server(("127.0.0.1", 0), app.Handler)
@@ -612,7 +836,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(expired.exception.status, 410)
         self.assertEqual(app.read_evidence_page(0)["events"], [])
 
-    def test_capability_bursts_use_only_the_local_context_roster(self):
+    def test_capability_bursts_coalesce_and_fake_tokens_stop_at_the_roster(self):
         token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
         context = app.RoundContext(
             opaque="a" * 64,
@@ -629,7 +853,14 @@ class GameTests(unittest.TestCase):
             objective_ids=(app.OBJECTIVE_ID,),
             objective_schema_hash="b" * 64,
         )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(
+                app.capability_authenticator,
+                "_authenticate_upstream",
+                side_effect=lambda **_kwargs: time.sleep(0.05),
+            ) as authenticate,
+        ):
             app.publish_managed_context(context)
             with ThreadPoolExecutor(max_workers=32) as executor:
                 admitted = list(
@@ -651,6 +882,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(len({item["sessionId"] for item in admitted}), 1)
         self.assertEqual(rejected, [403] * 200)
         self.assertEqual(len(app.sessions), 1)
+        authenticate.assert_called_once()
 
     @staticmethod
     def _session_status(token: str, timestamp_ms: int) -> int:

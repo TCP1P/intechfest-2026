@@ -81,9 +81,10 @@ def feed(events):
 
 
 class CaptureServer:
-    def __init__(self, acknowledgement, status=200):
+    def __init__(self, acknowledgement, status=200, content_type="application/json"):
         self.requests = []
         self.status = status
+        self.content_type = content_type
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -93,7 +94,7 @@ class CaptureServer:
                 owner.requests.append((dict(self.headers), body))
                 encoded = json.dumps(acknowledgement).encode()
                 self.send_response(owner.status)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", owner.content_type)
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
@@ -155,6 +156,48 @@ class ReporterRuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.snapshot()["state"], "stopped")
         self.assertFalse(runtime.snapshot()["alive"])
         self.assertNotIn(SECRET, repr(runtime.snapshot()))
+
+    def test_persistent_failure_becomes_unhealthy_after_a_startup_grace(self):
+        runtime = reporter.ReporterRuntime()
+        stop = Event()
+        thread = Thread(target=stop.wait, daemon=True)
+        with patch("reporter.time.monotonic", return_value=100.0):
+            runtime.attach(thread)
+        thread.start()
+        try:
+            self.assertTrue(runtime.is_healthy(114.999))
+            self.assertFalse(runtime.is_healthy(115.0))
+            with patch("reporter.time.monotonic", return_value=100.0):
+                runtime.mark_retrying()
+            self.assertTrue(runtime.is_healthy(114.999))
+            self.assertFalse(runtime.is_healthy(115.0))
+            with patch("reporter.time.monotonic", return_value=200.0):
+                runtime.mark_waiting()
+                for _index in range(reporter.HEALTH_FAILURE_THRESHOLD):
+                    runtime.mark_retrying()
+            self.assertFalse(runtime.is_healthy(200.0))
+            runtime.mark_waiting()
+            self.assertTrue(runtime.is_healthy(1_000.0))
+        finally:
+            stop.set()
+            thread.join()
+
+    def test_stuck_poll_becomes_unhealthy_without_a_reported_exception(self):
+        runtime = reporter.ReporterRuntime()
+        stop = Event()
+        thread = Thread(target=stop.wait, daemon=True)
+        runtime.attach(thread)
+        thread.start()
+        try:
+            runtime.mark_ready()
+            with patch("reporter.time.monotonic", return_value=100.0):
+                runtime.mark_polling()
+            self.assertEqual(runtime.snapshot()["state"], "starting")
+            self.assertTrue(runtime.is_healthy(114.999))
+            self.assertFalse(runtime.is_healthy(115.0))
+        finally:
+            stop.set()
+            thread.join()
 
     def test_absent_and_invalid_configuration_have_visible_safe_states(self):
         runtime = reporter.ReporterRuntime()
@@ -224,6 +267,28 @@ class ConfigurationTests(unittest.TestCase):
         request, timeout = request_json.call_args.args
         self.assertEqual(request.get_header("X-rsctf-api-version"), "v2")
         self.assertEqual(timeout, client.config.timeout_seconds)
+
+    def test_only_context_409_is_classified_as_an_inactive_gap(self):
+        client = reporter.ManagedReporter(config(), lambda _cursor: feed([]))
+        with patch.object(
+            client,
+            "_get_json",
+            side_effect=reporter.ReporterHttpError(
+                409,
+                reporter.INACTIVE_CONTEXT_TITLE,
+            ),
+        ):
+            with self.assertRaises(reporter.ReporterInactive):
+                client.fetch_context()
+
+        with patch.object(
+            client,
+            "_get_json",
+            side_effect=reporter.ReporterHttpError(409, "different conflict"),
+        ):
+            with self.assertRaises(reporter.ReporterHttpError) as permanent:
+                client.fetch_context()
+        self.assertNotIsInstance(permanent.exception, reporter.ReporterInactive)
 
     def test_absent_environment_disables_reporting(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -787,6 +852,77 @@ class SubmissionTests(unittest.TestCase):
                 client.submit(context(), body)
         self.assertEqual(rejected.exception.status, 202)
 
+    def test_observation_409_is_a_reporter_failure_not_an_inactive_gap(self):
+        body = json.dumps(
+            {"context": OPAQUE, "objectiveIds": list(reporter.OBJECTIVE_IDS), "waves": []},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        acknowledgement = self.acknowledgement(
+            recognizedTeams=0,
+            submittedTeams=0,
+            submittedWaves=0,
+        )
+        with CaptureServer(acknowledgement, status=409) as server:
+            client = reporter.ManagedReporter(config(server.url), lambda _cursor: feed([]))
+            with self.assertRaises(reporter.ReporterHttpError) as rejected:
+                client.submit(context(), body)
+        self.assertNotIsInstance(rejected.exception, reporter.ReporterInactive)
+        self.assertEqual(rejected.exception.status, 409)
+
+    def test_only_known_context_race_409s_are_retryable_on_observation(self):
+        body = json.dumps(
+            {"context": OPAQUE, "objectiveIds": list(reporter.OBJECTIVE_IDS), "waves": []},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        for title in (
+            reporter.CHANGED_CONTEXT_TITLE,
+            reporter.INACTIVE_CONTEXT_TITLE,
+        ):
+            with self.subTest(title=title):
+                response = {"status": 409, "title": title}
+                with CaptureServer(response, status=409) as server:
+                    client = reporter.ManagedReporter(
+                        config(server.url),
+                        lambda _cursor: feed([]),
+                    )
+                    with self.assertRaises(reporter.ReporterInactive):
+                        client.submit(context(), body)
+
+    def test_near_match_409_documents_remain_reporter_failures(self):
+        body = json.dumps(
+            {"context": OPAQUE, "objectiveIds": list(reporter.OBJECTIVE_IDS), "waves": []},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        cases = (
+            ({"status": 409.0, "title": reporter.INACTIVE_CONTEXT_TITLE}, "application/json"),
+            (
+                {
+                    "status": 409,
+                    "title": reporter.INACTIVE_CONTEXT_TITLE,
+                    "detail": "near match",
+                },
+                "application/json",
+            ),
+            ({"status": 409, "title": reporter.INACTIVE_CONTEXT_TITLE}, "text/plain"),
+        )
+        for response, content_type in cases:
+            with self.subTest(response=response, content_type=content_type):
+                with CaptureServer(
+                    response,
+                    status=409,
+                    content_type=content_type,
+                ) as server:
+                    client = reporter.ManagedReporter(
+                        config(server.url),
+                        lambda _cursor: feed([]),
+                    )
+                    with self.assertRaises(reporter.ReporterHttpError) as rejected:
+                        client.submit(context(), body)
+                self.assertNotIsInstance(rejected.exception, reporter.ReporterInactive)
+
     def test_timestamps_are_strictly_monotonic(self):
         client = reporter.ManagedReporter(config(), lambda _cursor: feed([]))
         with patch("reporter.time.time_ns", return_value=1_000_000_000):
@@ -861,9 +997,9 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(client.cursor, 1)
         self.assertEqual(set(client.waves[180_000]), {TEAM_A})
 
-    def test_lifecycle_reset_keeps_the_last_acked_process_cursor(self):
+    def test_lifecycle_reset_is_fenced_even_if_the_opaque_value_is_reused(self):
         original = context()
-        reset = context(opaque="d" * 64, reset_attempt=1)
+        reset = context(reset_attempt=1)
         published = []
         client = reporter.ManagedReporter(config(), lambda _cursor: feed([]), published.append)
         client.context = original
