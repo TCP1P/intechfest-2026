@@ -100,6 +100,11 @@ jobs:
           cache-dependency-path: |
             events/**/go.mod
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.20.0'
+
       - name: Exercise all challenge components
         run: make components
 

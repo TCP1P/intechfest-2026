@@ -33,6 +33,8 @@ solutions:
 components:
 	@find events -path '*/src/test_*.py' -type f -print0 | sort -z | \
 		xargs -0 -r -n1 sh -c 'cd "$$(dirname "$$1")" && python3 "$$(basename "$$1")"' sh
+	@find events -path '*/src/test_*.mjs' -type f -print0 | sort -z | \
+		xargs -0 -r -n1 sh -c 'cd "$$(dirname "$$1")" && node --test "$$(basename "$$1")"' sh
 	@find events -name go.mod -type f -print0 | sort -z | xargs -0 -r sh -c '\
 		for module do \
 			directory=$$(dirname "$$module"); \
