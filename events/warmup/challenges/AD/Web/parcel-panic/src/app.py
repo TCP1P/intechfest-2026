@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small intentionally vulnerable parcel lookup service."""
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -9,20 +10,35 @@ import os
 from pathlib import Path
 import socket
 from socketserver import ThreadingMixIn
-from threading import BoundedSemaphore, Lock
+from threading import BoundedSemaphore, Event, Lock, Thread, Timer
+import time
 from urllib.parse import parse_qs, urlsplit
 
 
 DEFAULT_PARCEL_ROOT = Path("/srv/parcels")
 DEFAULT_FLAG_FILE = Path("/run/rsctf/flag")
 MAX_CONCURRENT_REQUESTS = 64
+MAX_REGULAR_REQUESTS = 56
 MAX_REQUESTS_PER_CLIENT = 16
 MAX_FILE_BYTES = 4096
 MAX_FLAG_BYTES = 256
 MAX_NAME_BYTES = 128
 MAX_REQUEST_TARGET_BYTES = 2048
+MAX_REQUEST_STREAM_BYTES = 12 * 1024
+MAX_PENDING_REQUESTS = 128
 READ_TIMEOUT_SECONDS = 4
+ABSOLUTE_REQUEST_SECONDS = 6
+CLASSIFIER_POLL_SECONDS = 0.025
 VAULT_PROOF_PREFIX = b"parcel-panic:v1\0"
+
+PROTECTED_REQUEST_LINES = {
+    b"GET /health HTTP/1.0",
+    b"GET /health HTTP/1.1",
+    b"GET /parcel?name=manifest.txt HTTP/1.0",
+    b"GET /parcel?name=manifest.txt HTTP/1.1",
+    b"GET /vault HTTP/1.0",
+    b"GET /vault HTTP/1.1",
+}
 
 
 class FileTooLarge(Exception):
@@ -33,6 +49,33 @@ class FileTooLarge(Exception):
 class AppConfig:
     parcel_root: Path
     flag_file: Path
+
+
+class _BoundedReader:
+    """Bound request-line, header, and body buffering for one connection."""
+
+    def __init__(self, raw, limit: int):
+        self.raw = raw
+        self.remaining = limit
+
+    def _size(self, requested: int) -> int:
+        available = self.remaining + 1
+        return available if requested < 0 else min(requested, available)
+
+    def _account(self, data: bytes) -> bytes:
+        self.remaining -= len(data)
+        if self.remaining < 0:
+            raise OSError("request stream limit exceeded")
+        return data
+
+    def read(self, size: int = -1) -> bytes:
+        return self._account(self.raw.read(self._size(size)))
+
+    def readline(self, size: int = -1) -> bytes:
+        return self._account(self.raw.readline(self._size(size)))
+
+    def __getattr__(self, name: str):
+        return getattr(self.raw, name)
 
 
 def read_bounded(path: Path, limit: int) -> bytes:
@@ -60,6 +103,16 @@ def vault_proof(flag: str) -> str:
 
 class ParcelHandler(BaseHTTPRequestHandler):
     config = AppConfig(DEFAULT_PARCEL_ROOT, DEFAULT_FLAG_FILE)
+
+    def setup(self) -> None:
+        super().setup()
+        self.rfile = _BoundedReader(self.rfile, MAX_REQUEST_STREAM_BYTES)
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except OSError:
+            self.close_connection = True
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if len(self.path.encode("utf-8", errors="ignore")) > MAX_REQUEST_TARGET_BYTES:
@@ -150,13 +203,17 @@ class ParcelHandler(BaseHTTPRequestHandler):
         self.send_bytes(status, body.encode("utf-8"))
 
     def send_bytes(self, status: int, body: bytes) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+        except OSError:
+            self.close_connection = True
 
     def log_message(self, _format: str, *_args: object) -> None:
         pass
@@ -168,18 +225,36 @@ class ParcelServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
     max_workers = MAX_CONCURRENT_REQUESTS
+    max_regular_workers = MAX_REGULAR_REQUESTS
     max_requests_per_client = MAX_REQUESTS_PER_CLIENT
-    request_queue_size = 16
+    max_pending_requests = MAX_PENDING_REQUESTS
+    absolute_request_seconds = ABSOLUTE_REQUEST_SECONDS
+    request_queue_size = MAX_PENDING_REQUESTS
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self.worker_slots = BoundedSemaphore(self.max_workers)
+        self.regular_slots = BoundedSemaphore(self.max_regular_workers)
         self.client_lock = Lock()
         self.client_workers: dict[str, int] = {}
+        self.admissions: dict[int, tuple[str, bool, float]] = {}
+        self.pending_lock = Lock()
+        self.pending_requests: OrderedDict[
+            int,
+            tuple[socket.socket, tuple[str, int], float],
+        ] = OrderedDict()
+        self.classifier_stop = Event()
+        self.classifier_wakeup = Event()
         super().__init__(*args, **kwargs)
+        self.classifier_thread = Thread(
+            target=self.classify_pending_requests,
+            name="parcel-header-classifier",
+            daemon=True,
+        )
+        self.classifier_thread.start()
 
     def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
         connection, address = super().get_request()
-        connection.settimeout(READ_TIMEOUT_SECONDS)
+        connection.setblocking(False)
         return connection, address
 
     def process_request(
@@ -187,22 +262,134 @@ class ParcelServer(ThreadingMixIn, HTTPServer):
         request: socket.socket,
         client_address: tuple[str, int],
     ) -> None:
-        if not self.worker_slots.acquire(blocking=False):
+        deadline = time.monotonic() + self.absolute_request_seconds
+        evicted = None
+        rejected = False
+        with self.pending_lock:
+            if self.classifier_stop.is_set():
+                rejected = True
+            else:
+                if len(self.pending_requests) >= self.max_pending_requests:
+                    _, evicted = self.pending_requests.popitem(last=False)
+                self.pending_requests[id(request)] = (request, client_address, deadline)
+        if rejected:
+            self.shutdown_request(request)
+            return
+        if evicted is not None:
+            self.shutdown_request(evicted[0])
+        self.classifier_wakeup.set()
+
+    def classify_pending_requests(self) -> None:
+        while not self.classifier_stop.is_set():
+            self.classifier_wakeup.clear()
+            with self.pending_lock:
+                pending = list(self.pending_requests.items())
+
+            now = time.monotonic()
+            for request_id, entry in pending:
+                request, client_address, deadline = entry
+                state = (
+                    "reject"
+                    if now >= deadline
+                    else self.classify_request(request)
+                )
+                if state == "pending":
+                    continue
+                claimed = self.take_pending_request(request_id, request)
+                if claimed is None:
+                    continue
+                if state in {"protected", "regular"} and not self.classifier_stop.is_set():
+                    self.promote_request(
+                        request,
+                        client_address,
+                        deadline,
+                        protected=state == "protected",
+                    )
+                else:
+                    self.shutdown_request(request)
+
+            with self.pending_lock:
+                nearest_deadline = min(
+                    (entry[2] for entry in self.pending_requests.values()),
+                    default=None,
+                )
+            wait_seconds = CLASSIFIER_POLL_SECONDS
+            if nearest_deadline is not None:
+                wait_seconds = min(
+                    wait_seconds,
+                    max(0.0, nearest_deadline - time.monotonic()),
+                )
+            self.classifier_wakeup.wait(wait_seconds if pending else 0.5)
+
+    @staticmethod
+    def classify_request(request: socket.socket) -> str:
+        try:
+            peeked = request.recv(
+                MAX_REQUEST_STREAM_BYTES + 1,
+                socket.MSG_PEEK | socket.MSG_DONTWAIT,
+            )
+        except BlockingIOError:
+            return "pending"
+        except OSError:
+            return "reject"
+        if not peeked or len(peeked) > MAX_REQUEST_STREAM_BYTES:
+            return "reject"
+        if b"\r\n\r\n" not in peeked:
+            return "pending"
+        request_line = peeked.split(b"\r\n", 1)[0]
+        return "protected" if request_line in PROTECTED_REQUEST_LINES else "regular"
+
+    def take_pending_request(
+        self,
+        request_id: int,
+        request: socket.socket,
+    ) -> tuple[socket.socket, tuple[str, int], float] | None:
+        with self.pending_lock:
+            entry = self.pending_requests.get(request_id)
+            if entry is None or entry[0] is not request:
+                return None
+            del self.pending_requests[request_id]
+            return entry
+
+    def promote_request(
+        self,
+        request: socket.socket,
+        client_address: tuple[str, int],
+        deadline: float,
+        *,
+        protected: bool,
+    ) -> None:
+        if time.monotonic() >= deadline:
+            self.shutdown_request(request)
+            return
+        try:
+            request.settimeout(READ_TIMEOUT_SECONDS)
+        except OSError:
             self.shutdown_request(request)
             return
         client = str(client_address[0])
+        if not protected:
+            with self.client_lock:
+                active = self.client_workers.get(client, 0)
+                if active >= self.max_requests_per_client:
+                    self.shutdown_request(request)
+                    return
+                self.client_workers[client] = active + 1
+        regular_acquired = protected or self.regular_slots.acquire(blocking=False)
+        total_acquired = regular_acquired and self.worker_slots.acquire(blocking=False)
+        if not total_acquired:
+            if regular_acquired and not protected:
+                self.regular_slots.release()
+            if not protected:
+                self.release_client(client)
+            self.shutdown_request(request)
+            return
         with self.client_lock:
-            active = self.client_workers.get(client, 0)
-            if active >= self.max_requests_per_client:
-                self.worker_slots.release()
-                self.shutdown_request(request)
-                return
-            self.client_workers[client] = active + 1
+            self.admissions[id(request)] = (client, not protected, deadline)
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self.release_client(client)
-            self.worker_slots.release()
+            self.release_admission(request)
             raise
 
     def process_request_thread(
@@ -210,11 +397,28 @@ class ParcelServer(ThreadingMixIn, HTTPServer):
         request: socket.socket,
         client_address: tuple[str, int],
     ) -> None:
+        with self.client_lock:
+            admission = self.admissions.get(id(request))
+        deadline_at = admission[2] if admission is not None else time.monotonic()
+        deadline = Timer(
+            max(0.0, deadline_at - time.monotonic()),
+            self._close_expired_request,
+            args=(request,),
+        )
+        deadline.daemon = True
         try:
+            deadline.start()
             super().process_request_thread(request, client_address)
         finally:
-            self.release_client(str(client_address[0]))
-            self.worker_slots.release()
+            deadline.cancel()
+            self.release_admission(request)
+
+    @staticmethod
+    def _close_expired_request(request: socket.socket) -> None:
+        try:
+            request.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def release_client(self, client: str) -> None:
         with self.client_lock:
@@ -223,6 +427,28 @@ class ParcelServer(ThreadingMixIn, HTTPServer):
                 self.client_workers.pop(client, None)
             else:
                 self.client_workers[client] = remaining
+
+    def release_admission(self, request: socket.socket) -> None:
+        with self.client_lock:
+            admission = self.admissions.pop(id(request), None)
+        if admission is None:
+            return
+        client, used_regular_slot, _deadline = admission
+        if used_regular_slot:
+            self.release_client(client)
+            self.regular_slots.release()
+        self.worker_slots.release()
+
+    def server_close(self) -> None:
+        self.classifier_stop.set()
+        self.classifier_wakeup.set()
+        self.classifier_thread.join()
+        with self.pending_lock:
+            pending = list(self.pending_requests.values())
+            self.pending_requests.clear()
+        for request, _client_address, _deadline in pending:
+            self.shutdown_request(request)
+        super().server_close()
 
     def handle_error(
         self,

@@ -1,8 +1,13 @@
-import json
 from concurrent.futures import ThreadPoolExecutor
+import io
+import json
+import os
 from pathlib import Path
+import socket
+import subprocess
 import tempfile
 from threading import Thread
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -154,6 +159,87 @@ class DraftControlTests(unittest.TestCase):
 
         self.assertIn(self.marker.read_text(encoding="utf-8"), tokens)
         self.assertEqual(list(self.koth.glob(".draft-*")), [])
+
+    def test_request_stream_is_bounded_across_headers_and_body(self):
+        reader = app._BoundedReader(io.BytesIO(b"a" * 20), 12)
+        self.assertEqual(reader.read(12), b"a" * 12)
+        with self.assertRaises(OSError):
+            reader.read(1)
+
+    def test_absolute_deadline_closes_a_trickling_request(self):
+        with RunningService(self.pages) as service:
+            service.server.absolute_request_seconds = 0.2
+            with socket.create_connection(
+                ("127.0.0.1", service.server.server_port), timeout=1
+            ) as connection:
+                connection.settimeout(1)
+                connection.sendall(b"GET /health HTTP/1.1\r\n")
+                self.assertEqual(connection.recv(1), b"")
+
+    def test_slow_same_ip_clients_cannot_starve_health_or_checker(self):
+        with RunningService(self.pages) as service:
+            clients = []
+            try:
+                silent_count = service.server.max_pending_requests + 8
+                for _ in range(silent_count):
+                    connection = socket.create_connection(
+                        ("127.0.0.1", service.server.server_port), timeout=1
+                    )
+                    clients.append(connection)
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    with service.server._pending_lock:
+                        pending = len(service.server._pending_requests)
+                    if pending == service.server.max_pending_requests:
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(pending, service.server.max_pending_requests)
+
+                request = (
+                    b"GET /health HTTP/1.1\r\n"
+                    b"Host: localhost\r\n"
+                    b"Connection: close\r\n\r\n"
+                )
+                with socket.create_connection(
+                    ("127.0.0.1", service.server.server_port), timeout=1
+                ) as health:
+                    health.settimeout(2)
+                    for byte in request:
+                        health.sendall(bytes([byte]))
+                        time.sleep(0.001)
+                    response = b""
+                    while chunk := health.recv(4096):
+                        response += chunk
+                headers, body = response.split(b"\r\n\r\n", 1)
+                self.assertIn(b" 200 ", headers.split(b"\r\n", 1)[0])
+                self.assertEqual(body, b"ok\n")
+
+                checker_directory = Path(__file__).resolve().parents[1] / "checker"
+                environment = {
+                    **os.environ,
+                    "RSCTF_ACTION": "check",
+                    "RSCTF_TARGET_IP": "127.0.0.1",
+                    "RSCTF_TARGET_PORT": str(service.server.server_port),
+                    "RSCTF_ROUND": "1",
+                    "RSCTF_TEAM_ID": "0",
+                    "RSCTF_CHALLENGE_ID": "1",
+                }
+                result = subprocess.run(
+                    ["python3", "run.py"],
+                    cwd=checker_directory,
+                    env=environment,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    result.stderr.decode("utf-8", errors="replace"),
+                )
+            finally:
+                for connection in clients:
+                    connection.close()
 
     def test_preview_rejects_traversal_without_reading_marker(self):
         with RunningService(self.pages) as service:
