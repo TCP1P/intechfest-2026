@@ -12,6 +12,8 @@ receives, then return to the author context to review the completed report.
 
 1. Inspect Git status, `challenge.yaml`, the exact `provide` artifact, and the target setup.
    Read [exposure and isolation](references/exposure-isolation.md).
+   For managed Leaderboard KotH, also read
+   [the reporting and lifecycle contract](../../../docs/koth-reporting.md).
 2. Select exactly one mode: `service`, `handout`, `hybrid`, or `byoc`. If the real delivery
    cannot be determined, ask the author instead of choosing the more revealing mode.
 3. Run `make check RSCTF=/path/to/rsctf` with the matching official rsctf binary. Build and
@@ -20,10 +22,11 @@ receives, then return to the author context to review the completed report.
 4. Rebuild the exact player artifact or issue a redacted target. Hash handouts. For BYOC,
    use the exact team setup/image flow and only the team-owned controls available in-event.
 5. For managed Leaderboard KotH, prepare the target through hidden rsctf staging. Before
-   opening the blind room, confirm an actual completed wave is
-   accepted, a target reset rotates the reporter credential, and any transport `gateway/`
-   works without receiving scoring state or secrets. Keep all of that organizer evidence out
-   of the player brief and room.
+   opening the blind room, complete the documented two-team lifecycle: verify exact v2 context
+   and half-open/terminal wave boundaries, native-ratio and Crown settlement, checker
+   read-only behavior, and `401` rejection of the old credential after target reset. Confirm
+   any transport `gateway/` works without receiving scoring state or secrets. Keep all of
+   that organizer evidence out of the player brief and room.
 
 ## Create the room
 

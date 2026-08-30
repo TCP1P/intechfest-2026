@@ -84,9 +84,13 @@ references merely because they exist.
   KotH checkers receive no flag and must not inspect or alter the Marker or managed
   Leaderboard evidence source.
 - A managed Leaderboard target reads only rsctf-injected `RSCTF_KOTH_*` values, submits
-  bounded native evidence rather than points, and filters those values from child-process
-  environments. Add `gateway/` only for a concrete transport mismatch; it must remain
-  stateless with respect to identity/scoring and receive no reporter credential.
+  bounded native ratios and Crown state rather than points, and filters those values from
+  child-process environments. Request context with `X-RSCTF-API-Version: v2`, preserve its
+  lifecycle-wide cadence grid, accept only an exact v2 or conservative exact-v1 fallback,
+  and treat wave windows as half-open even when the terminal exclusive bound is
+  `scoringEndsAt + 1 ms`. Keep reporting in the authoritative service; do not create an
+  `observer/` component. Add `gateway/` only for a concrete transport mismatch; it must
+  remain stateless with respect to identity/scoring and receive no reporter credential.
 - Checkers have one target IP/port, bounded time and output, a read-only source/venv,
   and only exact wheel-installable PyPI pins.
 - Do not present the included `DynamicAttachment` manifest as playable while rsctf

@@ -12,6 +12,8 @@ because its manifest parses or its author solver works.
 
 1. Inspect Git status and identify the exact candidate commit. Read
    [the release evidence contract](references/release-evidence.md).
+   For a managed Leaderboard hill, also read
+   [the reporting and lifecycle contract](../../../docs/koth-reporting.md).
 2. Inspect the committed tree, manifest, player artifacts, source/build contexts,
    dependencies, checkers, generators, managed reporters/gateways, and organizer solution verification record.
    Confirm every package has a concise `solution/README.md` and simple `solution/solve.py`,
@@ -28,7 +30,11 @@ because its manifest parses or its author solver works.
    critical/high unintended paths must be fixed and rerun.
 6. Require hidden, disabled Repository Bindings staging evidence. Check normal-player access,
    exact challenge count, build/preparation results, and rescan consequences. Require the
-   real multi-team lifecycle for A&D, KotH, or BYOC changes.
+   real multi-team lifecycle for A&D, KotH, or BYOC changes. A managed Leaderboard review
+   specifically requires exact-v2 context negotiation, permanent scoreable-wave boundaries,
+   native ratios and correct Crown behavior for two teams, a read-only checker state
+   comparison, and a reset test proving the old reporter credential receives `401` before
+   the new target reports successfully.
 7. Return `ready`, `not ready`, or `blocked`, followed by passed evidence and missing evidence
    tied to the exact revision. Never turn a missing gate into an assumed pass.
 
