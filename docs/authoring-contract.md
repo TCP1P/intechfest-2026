@@ -268,10 +268,10 @@ remove inapplicable keys. Do not invent metadata aliases or CI-only fields.
   A&D or KotH scoring.
 - Use `flags` only for supported Jeopardy static flag rows. Use `flagTemplate` for
   dynamic containers and A&D. KotH uses its control-source contract instead of flags.
-- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's private
-  callback routes. Use `true` only for deliberate arbitrary Internet egress, which requires
-  Kubernetes because the Docker backend rejects it. The warmup `Draft Control` and `Serpent
-  Circuit` packages deliberately use `false`; BYOC host egress is not controlled here.
+- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
+  Internet. Use `false` only for a deliberate, reviewed isolation requirement. Verify the
+  deployment backend supports the policy; rsctf's Docker backend currently rejects
+  competitive `true` workloads. BYOC host egress is not controlled here.
 - Use a relative `provide` path and keep the target inside the package. This repository
   names `dist` explicitly when a handout exists.
 - Omit `containerImage` when Repository Bindings should build the adjacent

@@ -33,10 +33,10 @@ Do not use author or solution context as the blind solver.
   mode or silently change its player delivery or claim source.
 - Keep Jeopardy scoring fields absent when rsctf defaults are intended. They do not belong
   on A&D or KotH manifests.
-- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's
-  private callback routes. Set it to `true` only for deliberate arbitrary Internet egress;
-  that mode requires the Kubernetes backend because Docker rejects it. `Draft Control`
-  and `Serpent Circuit` deliberately use `false`. BYOC host egress is outside this field.
+- Set `ad.allowEgress: true` on managed A&D and KotH manifests so challenge targets can
+  reach the Internet. Use `false` only for a deliberate, reviewed isolation requirement.
+  Confirm the selected runtime backend can enforce that policy; rsctf's Docker backend
+  currently rejects competitive `true` workloads. BYOC host egress is outside this field.
 - Put exact player downloads in `dist/`, image input in `src/`, A&D/KotH checks in
   `checker/`, an unavoidable transport-only adapter in `gateway/`, and organizer material
   in `solution/`. Leaderboard reporting normally runs inside the managed target in `src/`.

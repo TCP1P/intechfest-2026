@@ -66,9 +66,9 @@ directory merely to avoid deciding ownership.
 - Copy the closest supported example and remove inapplicable keys.
 - Keep name unique within the event and category consistent with the path.
 - Omit default Jeopardy scoring keys unless the request explicitly changes policy.
-- Keep `ad.allowEgress: false` when managed A&D/KotH needs only private rsctf callbacks.
-  Enable `true` only for reviewed arbitrary Internet egress on Kubernetes; Docker rejects
-  that mode. `Draft Control` and `Serpent Circuit` deliberately remain `false`, and BYOC
+- Set `ad.allowEgress: true` for managed A&D/KotH so the target can reach the Internet.
+  Use `false` only for deliberate reviewed isolation. Verify the selected backend supports
+  the policy; rsctf's Docker backend currently rejects competitive `true` workloads. BYOC
   host egress is not controlled by this field.
 - Never add guessed keys. `rsctf challenge check` rejects unknown fields.
 - Keep live secrets out even if the remote is currently private.

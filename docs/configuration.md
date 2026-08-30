@@ -172,7 +172,7 @@ Dockerfile health checks; validate those runtimes through their actual backend t
 | Key | Import default | Behavior |
 | --- | --- | --- |
 | `checkerImage` | absent | Omit it; concrete checker-container references are rejected, while an adjacent `checker/run.py` entry point and its sibling source files are prepared automatically |
-| `allowEgress` | `false` | `false` still permits rsctf-injected private managed callback routes; `true` permits arbitrary Internet egress and requires Kubernetes because Docker rejects it. It does not control checker or BYOC-host egress |
+| `allowEgress` | `false` | Controls outbound networking for platform-managed A&D and KotH containers, not checker or BYOC-host egress; this repository sets it to `true` explicitly, and the deployment must use a backend that can enforce it |
 | `allowSelfReset` | `true` | Player reset for managed A&D; unavailable for BYOC |
 | `sshRequiresFlag` | `false` | Persisted but not currently enforced by SSH authorization; omit it from runnable templates |
 | `selfHosted` | `false` | `true` selects BYOC and is valid only for `AttackDefense` |
@@ -211,7 +211,7 @@ platform-hosted package uses the corresponding managed settings:
 ```yaml
 # Platform-hosted: rsctf launches one service container per accepted team.
 ad:
-  allowEgress: false
+  allowEgress: true
   allowSelfReset: true
   selfHosted: false
 ```
@@ -226,13 +226,13 @@ For KotH, use only settings that affect the platform-owned hill:
 
 ```yaml
 ad:
-  allowEgress: false
+  allowEgress: true
 ```
 
-These portable examples need no arbitrary Internet access. `Draft Control` and `Serpent
-Circuit` deliberately use `false`; managed Leaderboard callbacks still work over the
-private routes rsctf injects. Use `true` only for a reviewed Internet dependency on a
-Kubernetes deployment.
+The import default remains `false`, so repository packages opt in explicitly. Set it back
+to `false` only when isolation is part of the reviewed challenge contract. Private managed
+callbacks do not depend on general Internet access. rsctf's current Docker backend rejects
+competitive `true` workloads; use a policy-capable backend for these manifests.
 
 The repository manifest does not contain a reporter secret or claim-source switch. For a
 managed Leaderboard hill, import the ordinary `KingOfTheHill` manifest, configure rsctf's

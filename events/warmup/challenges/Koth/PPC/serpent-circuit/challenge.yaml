@@ -23,7 +23,5 @@ container:
   exposePort: 8080
 
 ad:
-  # The lifecycle callback remains reachable on rsctf's private service
-  # network. Arbitrary internet egress is unnecessary, so this also works on
-  # the default Docker backend instead of requiring Kubernetes NetworkPolicy.
-  allowEgress: false
+  # Managed challenge targets can reach the Internet by repository policy.
+  allowEgress: true

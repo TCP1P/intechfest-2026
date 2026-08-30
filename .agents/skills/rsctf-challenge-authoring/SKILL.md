@@ -69,10 +69,10 @@ references merely because they exist.
 - Omit `minScoreRate`, `difficulty`, and `submissionLimit` when rsctf's current
   Jeopardy defaults are intended. Add them only for a deliberate scoring-policy
   override, and omit them from A&D and KotH manifests.
-- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's
-  private callback routes. Set it to `true` only for deliberate arbitrary Internet egress;
-  that requires Kubernetes because Docker rejects it. `Draft Control` and `Serpent Circuit`
-  deliberately use `false`. BYOC host egress is outside this manifest field.
+- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
+  Internet. Use `false` only for a deliberate, reviewed isolation requirement. Verify the
+  selected backend supports the policy; rsctf's Docker backend currently rejects competitive
+  `true` workloads. BYOC host egress is outside this manifest field.
 - Never commit organizer tokens, reporter HMAC secrets, undisclosed internal endpoints,
   database dumps, container logs containing flags, live credentials, or unredacted secret
   evidence. Reviewed public player endpoints belong only in their owning release inputs.

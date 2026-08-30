@@ -18,7 +18,5 @@ container:
   exposePort: 8080
 
 ad:
-  # Draft Control needs only the private competition network. Keeping arbitrary
-  # internet egress off makes the same package portable across Docker and
-  # Kubernetes backends.
-  allowEgress: false
+  # Managed challenge targets can reach the Internet by repository policy.
+  allowEgress: true

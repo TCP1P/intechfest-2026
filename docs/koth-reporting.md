@@ -29,11 +29,11 @@ hill causes rsctf to create a reporter credential before the crash-recoverable
 replacement container is launched. The same reset retry reuses that credential;
 a new reset rotates it.
 
-This private managed callback path works with `ad.allowEgress: false`; it does not require
-general Internet access. Set `allowEgress: true` only when the gameplay itself has a reviewed
-arbitrary Internet dependency. Competitive containers support that broader policy only on
-Kubernetes; the Docker backend rejects it. `Draft Control` and `Serpent Circuit` deliberately
-use `false`.
+This private managed callback path does not itself require general Internet access. This
+repository nevertheless sets `ad.allowEgress: true` on managed KotH packages so gameplay
+can reach the Internet by default. Use `false` only when isolation is part of the reviewed
+challenge contract. The deployment must use a backend that can enforce the requested policy;
+rsctf's current Docker backend rejects competitive `true` workloads.
 
 rsctf injects these values into only that target:
 
