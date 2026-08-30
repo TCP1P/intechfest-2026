@@ -13,6 +13,8 @@ file between author, player, runtime, checker, or organizer surfaces for conveni
 ```text
 .
 ├── .agents/                         # automatic AI skill workflows and references
+│   └── skills/rsctf-challenge-playtest/
+│       └── playtest/                # ignored temporary clean-room preparation
 ├── .github/workflows/validate.yml   # official rsctf validation and dynamic builds
 ├── AGENTS.md                        # AI-agent entry point
 ├── Makefile                         # short local rsctf commands
@@ -24,7 +26,6 @@ file between author, player, runtime, checker, or organizer surfaces for conveni
 │   └── main-event/
 │       ├── .gzevent                 # owns only main-event manifests below it
 │       └── challenges/<mode>/<category>/<slug>/
-├── playtest/                        # ignored temporary clean-room preparation
 └── README.md                        # short repository entry point
 ```
 
@@ -89,7 +90,8 @@ for the organizer reference solver and must not enter `dist/`.
   `Web`, `Reverse`, `Blockchain`, `Forensics`, `Hardware`, `Mobile`, `PPC`, `AI`,
   `Pentest`, or `OSINT`.
 - `<slug>` uses lowercase ASCII kebab-case, describes one challenge, and is stable after
-  the first import. Use `api-observed-hill`, not `API Observed Hill` or `api_observed_hill`.
+  the first import. Use `managed-leaderboard-hill`, not `Managed Leaderboard Hill` or
+  `managed_leaderboard_hill`.
 - `challenge.yaml` uses the canonical filename even though rsctf accepts
   `challenge.yml` for compatibility.
 - Challenge display names must be unique within the event. Directory slugs should also
@@ -223,12 +225,12 @@ the solver.
   flag file. The checker receives the matching expected value.
 - Deterministic variants return a server-side flag in their generated manifest. The flag is
   not a player attachment.
-- KotH uses the selected marker or signed API capability source and receives no checker
+- KotH uses the selected marker or managed Leaderboard evidence source and receives no checker
   flag.
 
 Do not use a real event flag in source tests, Docker layers, health checks, logs, screenshots,
 solution evidence, or CI. Use unmistakable local values such as `rsctf{local_test}` and
-redact retained output to `rsctf{...}`. Store reporter/legacy-observer secrets, receipt issuer tokens, admin
+redact retained output to `rsctf{...}`. Store reporter secrets, receipt issuer tokens, admin
 JWTs, repository tokens, SSH keys, and production endpoints only in the deployment's
 restricted secret/configuration stores.
 
@@ -265,6 +267,8 @@ remove inapplicable keys. Do not invent metadata aliases or CI-only fields.
   A&D or KotH scoring.
 - Use `flags` only for supported Jeopardy static flag rows. Use `flagTemplate` for
   dynamic containers and A&D. KotH uses its control-source contract instead of flags.
+- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
+  internet. Use `false` only for a deliberate reviewed isolation requirement.
 - Use a relative `provide` path and keep the target inside the package. This repository
   names `dist` explicitly when a handout exists.
 - Omit `containerImage` when Repository Bindings should build the adjacent
@@ -385,7 +389,7 @@ Use the exact format and copyable template in [Solutions and reference solvers](
 
 | Evidence | Location | Commit policy |
 | --- | --- | --- |
-| temporary blind-run room and raw captures | `playtest/` | ignored |
+| temporary blind-run room and raw captures | `.agents/skills/rsctf-challenge-playtest/playtest/` | ignored |
 | organizer writeup screenshots | package `solution/assets/` | commit only when referenced, current, and redacted |
 | durable human documentation images | `docs/assets/screenshots/` | commit only when current and useful |
 | player-facing images or files | package `dist/` | committed as part of the exact handout |

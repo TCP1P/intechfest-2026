@@ -29,5 +29,5 @@ AI coding agents use the same facts through the repository's [AGENTS.md](../AGEN
 and task-specific workflows under `.agents/skills/`. The skills are implicitly selectable;
 `$rsctf-challenge-design`, `$rsctf-challenge-authoring`,
 `$rsctf-challenge-solution`, `$rsctf-challenge-playtest`,
-`$rsctf-playtest-review`, and `$rsctf-challenge-release-review` can also be invoked
+and `$rsctf-challenge-release-review` can also be invoked
 explicitly.

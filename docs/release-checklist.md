@@ -19,7 +19,7 @@ applies these gates without authorizing an import or enablement by itself.
       source, history, real flag, or organizer notes unless source is intentionally
       part of the challenge.
 - [ ] Container and generator build contexts contain no credentials, private keys,
-      reporter/legacy-observer secrets, admin tokens, or production-only configuration.
+      reporter secrets, admin tokens, or production-only configuration.
 - [ ] Every dependency is necessary, reviewed, and pinned appropriately.
 - [ ] All committed flags are treated as disclosed and replaced for the real event.
 - [ ] Every package commits a concise `solution/README.md` and simple `solution/solve.py`;

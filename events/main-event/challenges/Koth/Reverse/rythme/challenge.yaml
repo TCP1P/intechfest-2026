@@ -19,6 +19,6 @@ container:
   exposePort: 1337
 
 ad:
-  # Players fetch the pinned public beatmaps directly. rsctf grants only the
-  # managed scoring callback route to the coordinator.
-  allowEgress: false
+  # Managed challenge targets may reach the internet as well as rsctf's private
+  # lifecycle-bound reporting callback.
+  allowEgress: true

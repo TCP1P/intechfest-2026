@@ -69,7 +69,9 @@ references merely because they exist.
 - Omit `minScoreRate`, `difficulty`, and `submissionLimit` when rsctf's current
   Jeopardy defaults are intended. Add them only for a deliberate scoring-policy
   override, and omit them from A&D and KotH manifests.
-- Never commit organizer tokens, reporter or legacy-observer HMAC secrets, undisclosed internal endpoints,
+- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
+  internet. Use `false` only for a deliberate reviewed isolation requirement.
+- Never commit organizer tokens, reporter HMAC secrets, undisclosed internal endpoints,
   database dumps, container logs containing flags, live credentials, or unredacted secret
   evidence. Reviewed public player endpoints belong only in their owning release inputs.
 - Give every package a tracked organizer `solution/README.md` and small `solution/solve.py`.

@@ -15,8 +15,7 @@ it routes before acting:
 | design an exploit, clue path, or difficulty target | `$rsctf-challenge-design` |
 | create or edit manifests, source, handouts, checkers, managed reporters, or gateways | `$rsctf-challenge-authoring` |
 | write or reproduce `solution/README.md` and `solution/solve.py` | `$rsctf-challenge-solution` |
-| prepare and run a fresh blind solve | `$rsctf-challenge-playtest` |
-| assess a completed blind report and unintended paths | `$rsctf-playtest-review` |
+| prepare, run, or review a fresh blind solve | `$rsctf-challenge-playtest` |
 | decide whether a revision is ready to import or enable | `$rsctf-challenge-release-review` |
 
 Do not use author or solution context as the blind solver.
@@ -34,6 +33,8 @@ Do not use author or solution context as the blind solver.
   the directory.
 - Keep Jeopardy scoring fields absent when rsctf defaults are intended. They do not belong
   on A&D or KotH manifests.
+- Set `ad.allowEgress: true` on managed A&D and KotH manifests so challenge targets can
+  reach the internet. Use `false` only for a deliberate reviewed isolation requirement.
 - Put exact player downloads in `dist/`, image input in `src/`, A&D/KotH checks in
   `checker/`, an unavoidable transport-only adapter in `gateway/`, and organizer material
   in `solution/`. Leaderboard reporting normally runs inside the managed target in `src/`.
@@ -60,14 +61,15 @@ alter the KotH claim source.
 
 ## Secret and player boundary
 
-Never commit a live flag, capability, reporter/legacy-observer secret, admin credential, TLS private key,
+Never commit a live flag, capability, reporter secret, admin credential, TLS private key,
 undisclosed internal endpoint, database dump, or unredacted secret evidence. A reviewed
 public player endpoint may appear only in the release input that owns it. Private GitHub
 visibility protects organizer material from the public; it does not make committed secrets
 safe.
 
-`playtest/` is ignored convenience space, not a sandbox. A credible blind run uses a separate
-workspace and receives only the event's real player delivery.
+The ignored `.agents/skills/rsctf-challenge-playtest/playtest/` room is convenience space,
+not a sandbox. A credible blind run uses a separate workspace and receives only the event's
+real player delivery.
 
 ## Completion gate
 

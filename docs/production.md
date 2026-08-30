@@ -3,7 +3,7 @@
 Release candidate: `2026.08.28.1`
 
 This document defines the production-ready artifact and deployment contract for
-the INTECHFEST event. Live game IDs, capabilities, reporter/legacy-observer secrets, arena
+the INTECHFEST event. Live game IDs, capabilities, reporter secrets, arena
 credentials, and TLS private keys are operational state and must never be
 committed.
 

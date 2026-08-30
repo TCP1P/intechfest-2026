@@ -1,7 +1,6 @@
 # Local scratch and blind-playtest rooms
 /work/
-/playtest/
-**/playtest/
+/.agents/skills/rsctf-challenge-playtest/playtest/
 **/playtest-history/
 **/.playtest-audit.json
 
@@ -45,11 +44,9 @@ target/
 **/src/server/rythme-server
 **/src/server/*.test
 **/src/server/coverage.out
-**/observer/active-event.env
 
 # Organizer secrets are never repository content
 **/solution/client-integrity-private.pem
-**/observer/*.secret
 
 # Editor-specific AI state; repository-local .agents skills are tracked
 CLAUDE.md

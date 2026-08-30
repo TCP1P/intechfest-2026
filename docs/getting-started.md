@@ -12,8 +12,7 @@ For AI-assisted work, ask normally or invoke the matching integrated skill expli
 | design the intended path and difficulty target | `$rsctf-challenge-design` |
 | create or edit a package | `$rsctf-challenge-authoring` |
 | write and reproduce the organizer solution | `$rsctf-challenge-solution` |
-| run a clean blind solve | `$rsctf-challenge-playtest` |
-| assess the blind report | `$rsctf-playtest-review` |
+| prepare, run, and review a clean blind solve | `$rsctf-challenge-playtest` |
 | decide whether the exact revision is ready | `$rsctf-challenge-release-review` |
 
 The skills are eligible for automatic selection from this repository's `AGENTS.md`.

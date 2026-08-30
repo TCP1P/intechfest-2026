@@ -169,7 +169,7 @@ Dockerfile health checks; validate those runtimes through their actual backend t
 | Key | Import default | Behavior |
 | --- | --- | --- |
 | `checkerImage` | absent | Omit it; concrete checker-container references are rejected, while an adjacent `checker/run.py` entry point and its sibling source files are prepared automatically |
-| `allowEgress` | `false` | Controls outbound networking for platform-managed A&D and KotH containers, not checker or BYOC-host egress |
+| `allowEgress` | `false` | Controls outbound networking for platform-managed A&D and KotH containers, not checker or BYOC-host egress; this repository sets it to `true` explicitly so managed targets can reach the internet |
 | `allowSelfReset` | `true` | Player reset for managed A&D; unavailable for BYOC |
 | `sshRequiresFlag` | `false` | Persisted but not currently enforced by SSH authorization; omit it from runnable templates |
 | `selfHosted` | `false` | `true` selects BYOC and is valid only for `AttackDefense` |
@@ -207,7 +207,7 @@ Use these two A&D examples to compare the hosting modes:
 ```yaml
 # Platform-hosted: rsctf launches one service container per accepted team.
 ad:
-  allowEgress: false
+  allowEgress: true
   allowSelfReset: true
   selfHosted: false
 ```
@@ -222,7 +222,7 @@ For KotH, use only settings that affect the platform-owned hill:
 
 ```yaml
 ad:
-  allowEgress: false
+  allowEgress: true
 ```
 
 The repository manifest does not contain a reporter secret or claim-source switch. For a
@@ -231,8 +231,8 @@ private `RSCTF_KOTH_REPORTER_BASE_URL`, then enable **Leaderboard** for that hil
 A&D / KotH operator view before the official snapshot is created. rsctf injects a
 lifecycle-bound credential and exact callback URLs into the managed target. It freezes
 `Marker` or `Api` as the claim source when official scoring starts; the target reports
-bounded native evidence, never a platform score. The displayed external HMAC credential is
-only for legacy deployments that cannot report in process.
+bounded native evidence, never a platform score. Challenge packages in this repository do
+not use a separately deployed scoring process.
 
 Even in BYOC mode, keep a local `src/Dockerfile`: rsctf builds it during import
 and streams the immutable challenge-service image to authorized teams. The BYOC

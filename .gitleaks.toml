@@ -5,13 +5,6 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
-description = "Synthetic capability hashes used by the Minions bridge regression suite"
-condition = "AND"
-regexTarget = "line"
-paths = ['''events/main-event/challenges/Koth/PPC/minions-in-32k/observer/bridge/main_test\.go$''']
-regexes = ['''const tokenHash = "[0-9a-f]{64}"''']
-
-[[rules.allowlists]]
 description = "Player-recoverable Rythme policy fixtures printed in the official CTF solution"
 condition = "AND"
 regexTarget = "line"

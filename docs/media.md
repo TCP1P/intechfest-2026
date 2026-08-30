@@ -16,7 +16,7 @@ Store evidence by audience:
 | exact player-delivered image | the challenge's `dist/` |
 | runtime UI source | the challenge's `src/` |
 | writeup screenshot or freezed figure | the challenge's `solution/assets/` |
-| temporary blind-playtest capture | ignored `playtest/evidence/` |
+| temporary blind-playtest capture | ignored `.agents/skills/rsctf-challenge-playtest/playtest/evidence/` |
 | durable event artwork or documentation image | `docs/media/` |
 
 Do not add a screenshot only for decoration. When an image proves a visual state, capture the

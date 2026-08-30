@@ -66,6 +66,8 @@ directory merely to avoid deciding ownership.
 - Copy the closest supported example and remove inapplicable keys.
 - Keep name unique within the event and category consistent with the path.
 - Omit default Jeopardy scoring keys unless the request explicitly changes policy.
+- Keep `ad.allowEgress: true` for managed A&D/KotH unless deliberate isolation is part of
+  the reviewed challenge contract.
 - Never add guessed keys. `rsctf challenge check` rejects unknown fields.
 - Keep live secrets out even if the remote is currently private.
 

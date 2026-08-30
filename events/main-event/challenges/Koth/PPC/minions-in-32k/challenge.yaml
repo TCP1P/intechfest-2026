@@ -19,5 +19,6 @@ container:
   exposePort: 8080
 
 ad:
-  # rsctf grants the managed target only its narrow scoring callback route.
-  allowEgress: false
+  # Managed challenge targets may reach the internet as well as rsctf's private
+  # lifecycle-bound reporting callback.
+  allowEgress: true

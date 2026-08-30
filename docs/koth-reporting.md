@@ -97,7 +97,7 @@ remove every `RSCTF_KOTH_*` value. Pass only a domain-separated local credential
 needed for the child-to-supervisor report route. Tests must prove the platform
 secret and callback URLs are absent from the child environment.
 
-Do not add a private scoring HTTP feed solely for a second observer process.
+Do not add a private scoring HTTP feed solely for a second scoring process.
 Prefer an in-memory snapshot or loopback-only route. Do not persist the managed
 reporter secret to disk.
 
@@ -115,8 +115,8 @@ current target address. It must not:
 - share a secret or state volume with the target;
 - call rsctf scoring endpoints.
 
-Name it `gateway/`, not `observer/`. Document why it cannot be removed and test
-both protocol directions. If the target protocol is already compatible with
+Name it `gateway/` and document why it cannot be removed. Test both protocol
+directions. If the target protocol is already compatible with
 rsctf exposure, do not create a gateway.
 
 ## Local and integration testing
@@ -142,13 +142,3 @@ can report. Exercise target restart/adoption and an inactive round gap.
 
 Run the package's checker against the same target, but keep it read-only: a
 checker verifies health and gameplay quality; it does not submit evidence.
-
-## Legacy external compatibility
-
-rsctf retains its external `koth_api_…` credential and the same context and
-observation endpoints for deployments that cannot run reporting inside a
-managed target. That credential is optional compatibility, not the default
-challenge-package architecture. Store it outside player workloads and follow
-the same evidence validation rules. New packages in this repository must use
-managed target reporting unless the author records a concrete platform
-constraint that makes it impossible.

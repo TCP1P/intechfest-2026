@@ -69,7 +69,7 @@ contains no local manifest validator or container-discovery script.
 
 ## Publishing boundary
 
-- Never commit a live flag, KotH capability, reporter or legacy-observer secret, admin token, TLS private key,
+- Never commit a live flag, KotH capability, reporter secret, admin token, TLS private key,
   undisclosed internal endpoint, or unredacted secret evidence. Reviewed public player
   endpoints may appear only in their owning release inputs.
 - Treat `dist/` as player-visible and `solution/` as organizer-only.
