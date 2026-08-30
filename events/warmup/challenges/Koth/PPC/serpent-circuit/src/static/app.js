@@ -487,6 +487,7 @@ import { makeServerClock, serverNow } from "./clock.mjs";
         const inputId = `turn-${turn.turn}-option-${optionIndex + 1}`;
         const label = document.createElement("label");
         const input = document.createElement("input");
+        const choiceIndicator = document.createElement("span");
         const optionLabel = document.createElement("span");
         const optionRoll = document.createElement("span");
 
@@ -497,11 +498,13 @@ import { makeServerClock, serverNow } from "./clock.mjs";
         input.name = `turn-${turn.turn}`;
         input.value = String(optionIndex);
         input.required = true;
+        choiceIndicator.className = "choice-indicator";
+        choiceIndicator.setAttribute("aria-hidden", "true");
         optionLabel.className = "choice-label";
         optionLabel.textContent = `Option ${optionIndex + 1}`;
         optionRoll.className = "choice-roll";
         optionRoll.textContent = String(roll);
-        label.append(input, optionLabel, optionRoll);
+        label.append(input, choiceIndicator, optionLabel, optionRoll);
         choiceGrid.append(label);
       });
 
@@ -642,7 +645,6 @@ import { makeServerClock, serverNow } from "./clock.mjs";
           : "Rules loaded. Enter your player capability when you are ready.",
         unavailable ? "warning" : "success",
       );
-      elements.token.focus();
     } catch (error) {
       setConnection("Unavailable", "error");
       setStatus(error instanceof Error ? error.message : "Could not load game rules.", "error");

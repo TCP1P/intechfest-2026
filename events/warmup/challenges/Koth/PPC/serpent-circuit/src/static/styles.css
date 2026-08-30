@@ -416,6 +416,7 @@ input[type="password"]:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   min-width: 0;
   min-height: 3.5rem;
   margin: 0;
@@ -454,7 +455,28 @@ input[type="password"]:focus {
   white-space: nowrap;
 }
 
+.choice-indicator {
+  display: inline-grid;
+  flex: 0 0 1.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  place-items: center;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.choice-indicator::before {
+  content: "○";
+}
+
+.roll-choice:has(input:checked) .choice-indicator::before {
+  content: "✓";
+}
+
 .choice-label {
+  flex: 1 1 auto;
   font-size: 0.78rem;
   font-weight: 760;
   letter-spacing: 0.05em;
@@ -710,14 +732,6 @@ input[type="password"]:focus {
   .dashboard {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .board-column {
-    grid-row: 1;
-  }
-
-  .play-column {
-    grid-row: 2;
-  }
 }
 
 @media (max-width: 39rem) {
@@ -792,5 +806,11 @@ input[type="password"]:focus {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .choice-indicator {
+    color: CanvasText;
   }
 }

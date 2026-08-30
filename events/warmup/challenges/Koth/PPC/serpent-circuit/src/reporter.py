@@ -388,11 +388,21 @@ class ManagedReporter:
         cycle_ends_at = _integer(
             value["cycleEndsAt"], ends_at, 2**63 - 1, "cycleEndsAt"
         )
+        cycle_starts_at = (
+            _integer(value["cycleStartsAt"], 0, starts_at, "cycleStartsAt")
+            if api_version == "v2"
+            else None
+        )
         scoring_ends_at = (
             _integer(value["scoringEndsAt"], 0, cycle_ends_at, "scoringEndsAt")
             if api_version == "v2"
             else max(0, cycle_ends_at - LEGACY_SETTLEMENT_LAG_MS)
         )
+        if api_version == "v2" and (
+            scoring_ends_at <= cycle_starts_at
+            or ends_at > scoring_ends_at + 1
+        ):
+            raise RuntimeError("RSCTF returned inconsistent KotH scoring bounds")
         generated_at = _integer(value["generatedAt"], 1, 2**63 - 1, "generatedAt")
         current_time_ms = time.time_ns() // 1_000_000
         if (
@@ -410,9 +420,7 @@ class ManagedReporter:
             scoring_floor = self.context.scoring_floor
         else:
             if api_version == "v2":
-                floor_source = _integer(
-                    value["cycleStartsAt"], 0, starts_at, "cycleStartsAt"
-                )
+                floor_source = cycle_starts_at
             else:
                 floor_source = starts_at if value["roundNumber"] == 1 else generated_at
             scoring_floor = (

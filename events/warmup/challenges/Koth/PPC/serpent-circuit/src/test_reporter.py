@@ -357,6 +357,46 @@ class ConfigurationTests(unittest.TestCase):
         body = json.loads(client._body(round_context, 182_001))
         self.assertEqual(body["waves"][-1]["endedAtUnixMs"], 180_000)
 
+    def test_v2_context_rejects_reversed_or_overrunning_scoring_bounds(self):
+        valid = {
+            "apiVersion": "v2",
+            "context": OPAQUE,
+            "cycleNumber": 3,
+            "cycleStartsAt": 60_000,
+            "cycleEndsAt": 300_000,
+            "scoringEndsAt": 180_000,
+            "resetAttempt": 0,
+            "roundNumber": 2,
+            "waveWindowStartsAt": 120_000,
+            "waveWindowEndsAt": 180_001,
+            "eligibleTokenHashes": [TEAM_A],
+            "objectiveIds": [],
+            "objectiveSchemaHash": None,
+            "generatedAt": 180_000,
+        }
+        client = reporter.ManagedReporter(config(), lambda _cursor: feed([]))
+        invalid_contexts = (
+            {**valid, "scoringEndsAt": valid["cycleStartsAt"]},
+            {**valid, "scoringEndsAt": valid["cycleStartsAt"] - 1},
+            {**valid, "scoringEndsAt": valid["waveWindowEndsAt"] - 2},
+            {**valid, "waveWindowEndsAt": valid["scoringEndsAt"] + 2},
+        )
+        for raw_context in invalid_contexts:
+            with self.subTest(raw_context=raw_context):
+                with (
+                    patch.object(client, "_get_json", return_value=raw_context),
+                    patch("reporter.time.time_ns", return_value=180_000_000_000),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "scoring bounds"):
+                        client.fetch_context()
+
+        with (
+            patch.object(client, "_get_json", return_value=valid),
+            patch("reporter.time.time_ns", return_value=180_000_000_000),
+        ):
+            accepted = client.fetch_context()
+        self.assertEqual(accepted.scoring_ends_at, 180_000)
+
     def test_cycle_start_field_restores_exact_floor_after_late_target_start(self):
         raw_context = {
             "apiVersion": "v2",
