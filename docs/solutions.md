@@ -99,6 +99,18 @@ output, or edit source before rendering it.
 
 Use `freezed` for an annotated figure of real source:
 
+`--arrow` requires the TCP1P Freezed fork at commit
+[`7acde4f1f02abda8224b740a722b32652d1907a2`](https://github.com/dimasma0305/freezed/commit/7acde4f1f02abda8224b740a722b32652d1907a2);
+no tagged release contains it. Build and install that exact checkout as `freezed`, then run
+this preflight before rendering:
+
+```sh
+freezed --help | grep -F -- '--arrow' >/dev/null
+```
+
+Stop if the preflight fails; upstream `freeze` and older `freezed` binaries do not implement
+the documented arrow option.
+
 ```sh
 freezed path/to/source.py \
   --lines 20,45 \
@@ -108,14 +120,17 @@ freezed path/to/source.py \
   --padding 20 \
   --margin 26 \
   --title 'path/to/source.py' \
-  --circle 'vulnerable_call(user_input)' \
+  --arrow 'vulnerable_call(user_input)' \
   -o solution/assets/vuln-input-flow.png
 ```
 
-Use one `--circle` for one region and repeated `--mark` options for several related regions.
-Select code by quoted text when practical. An internal organizer writeup may show author
-source but must label it author-only. A player-facing publication may show only source the
-player receives or earns.
+`--arrow` points from a right-hand gutter to the selected line or range without covering the
+source. Repeat it for multiple independent targets; use repeated `--mark` options when the
+figure needs numbered relationships. A selector may be an absolute line (`12`), an inclusive
+range (`12,14`), unique quoted source text, or a text-delimited block (`start..end`). Prefer
+quoted source text when practical so harmless line movement does not stale the command. An
+internal organizer writeup may show author source but must label it author-only. A
+player-facing publication may show only source the player receives or earns.
 
 Open every generated image at readable scale. Check clipping, line visibility, stale source,
 wrong identity, tokens, flags, production hosts, and unrelated personal data. Regenerate it

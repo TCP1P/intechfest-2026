@@ -11,8 +11,9 @@
 
 ## Static and build evidence
 
-- `make validate` passes with zero warnings using the matching official rsctf binary.
-- `make matrix` emits every direct `src/Dockerfile` and `generator/Dockerfile` context.
+- `make check RSCTF=/path/to/rsctf` passes using the matching official binary; its validation
+  stage has zero warnings and its matrix stage emits every direct `src/Dockerfile` and
+  `generator/Dockerfile` context.
 - Applicable target-architecture builds and component tests pass.
 - Every service image declares and passes a meaningful, non-secret, non-mutating Docker
   `HEALTHCHECK`.
@@ -23,8 +24,8 @@
 
 - A&D checker verdicts include OK, Mumble, Offline, and InternalError; the current rotating
   flag is retrieved through ordinary player-visible behavior.
-- KotH checks do not read or alter the marker/API control source; attribution and scoring use
-  the selected frozen source.
+- KotH checks do not read or alter the Marker or managed Leaderboard evidence source;
+  attribution and scoring use the selected frozen source.
 - Deterministic generators build and return byte-identical valid output for identical input.
 - Managed KotH reporters receive a target/reset-bound credential at runtime, filter it from
   child processes, submit only bounded native evidence, fail closed on malformed context or
@@ -41,7 +42,8 @@
   difficulty. Critical/high shortcuts are fixed and rerun.
 - Hidden staging imports the expected event/challenge count with every challenge disabled.
 - A normal player cannot cross hidden, pre-start, non-member, or cross-team boundaries.
-- Rescan-induced challenge ID and admin-edit churn is rehearsed away from a live event.
+- Same-path rescan updates preserve challenge identity and accumulated state; intended path
+  renames and guarded tombstones are rehearsed away from a live event.
 - A&D/KotH/BYOC changes complete a real multi-team scheduling, networking, flag/control,
   checker, reset, and scoring rehearsal.
 

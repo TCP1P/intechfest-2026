@@ -50,8 +50,8 @@ references merely because they exist.
    authoritative state in `src/`, and an unavoidable transport-only adapter in `gateway/`.
 5. Add or update focused regression coverage for contract changes. Keep inputs bounded,
    dependencies pinned, and secrets absent from source and evidence.
-6. Run focused checks, `make validate`, and `make matrix`. Both commands must use the
-   matching official `rsctf` binary; do not add a repository-local validator,
+6. Run focused checks and `make check RSCTF=/path/to/rsctf` with the matching official
+   `rsctf` binary; do not add a repository-local validator,
    discovery helper, or wrapper. Confirm CI imports the maintained
    `dimasma0305/rsctf` action, builds every emitted context, and waits for each
    service image's Docker `HEALTHCHECK`. When runtime or generator inputs change,
@@ -69,8 +69,10 @@ references merely because they exist.
 - Omit `minScoreRate`, `difficulty`, and `submissionLimit` when rsctf's current
   Jeopardy defaults are intended. Add them only for a deliberate scoring-policy
   override, and omit them from A&D and KotH manifests.
-- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
-  internet. Use `false` only for a deliberate reviewed isolation requirement.
+- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's
+  private callback routes. Set it to `true` only for deliberate arbitrary Internet egress;
+  that requires Kubernetes because Docker rejects it. `Draft Control` and `Serpent Circuit`
+  deliberately use `false`. BYOC host egress is outside this manifest field.
 - Never commit organizer tokens, reporter HMAC secrets, undisclosed internal endpoints,
   database dumps, container logs containing flags, live credentials, or unredacted secret
   evidence. Reviewed public player endpoints belong only in their owning release inputs.
@@ -79,7 +81,8 @@ references merely because they exist.
   input. Never add a manifest inside `solution/` because local recursive validation still
   discovers nested manifest files.
 - A&D checkers must verify health and the current flag without mutating service state.
-  KotH checkers receive no flag and must not inspect or alter the control source.
+  KotH checkers receive no flag and must not inspect or alter the Marker or managed
+  Leaderboard evidence source.
 - A managed Leaderboard target reads only rsctf-injected `RSCTF_KOTH_*` values, submits
   bounded native evidence rather than points, and filters those values from child-process
   environments. Add `gateway/` only for a concrete transport mismatch; it must remain

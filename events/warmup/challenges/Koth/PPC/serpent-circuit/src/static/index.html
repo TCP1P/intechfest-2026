@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#071116">
+    <title>Serpent Circuit</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to the game</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <div>
+          <p class="eyebrow">INTECHFEST 2026 · WARMUP · LEADERBOARD KOTH</p>
+          <h1 id="game-name">Serpent Circuit</h1>
+          <p id="objective" class="lede">
+            Loading the server-authoritative route…
+          </p>
+        </div>
+        <div class="runtime-badge" role="group" aria-label="Game connection status">
+          <span class="runtime-dot" aria-hidden="true"></span>
+          <span id="connection-state">Connecting</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-shell" tabindex="-1">
+      <div id="status" class="status-strip" role="status" aria-live="polite" aria-atomic="true">
+        Requesting game rules…
+      </div>
+
+      <div class="dashboard">
+        <div class="play-column">
+          <section id="join-panel" class="panel join-panel" aria-labelledby="join-title">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">Authenticate</p>
+                <h2 id="join-title">Enter the circuit</h2>
+              </div>
+              <span id="protocol-version" class="protocol-chip">protocol —</span>
+            </div>
+
+            <p class="panel-copy">
+              Use your event capability to receive this wave's deterministic dice pairs.
+              The capability is sent only to this server and is not stored by this page.
+            </p>
+
+            <form id="token-form" novalidate>
+              <label for="token">Player capability</label>
+              <div class="input-row">
+                <input
+                  id="token"
+                  name="token"
+                  type="password"
+                  autocomplete="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="133"
+                  required
+                  aria-describedby="token-help"
+                >
+                <button id="join-button" class="button button-primary" type="submit">
+                  Start wave
+                </button>
+              </div>
+              <p id="token-help" class="field-help">
+                Treat this value like a password. It identifies your team for managed KotH scoring.
+              </p>
+            </form>
+          </section>
+
+          <section id="game-panel" class="panel" aria-labelledby="wave-title" hidden>
+            <div class="panel-heading wave-heading">
+              <div>
+                <p class="section-kicker">Active route</p>
+                <h2 id="wave-title" tabindex="-1">Choose every roll</h2>
+              </div>
+              <button id="restart-button" class="button button-quiet" type="button">
+                Change capability
+              </button>
+            </div>
+
+            <dl class="wave-meta">
+              <div>
+                <dt>Wave</dt>
+                <dd id="wave-id">—</dd>
+              </div>
+              <div>
+                <dt>Closes in</dt>
+                <dd id="wave-countdown">—</dd>
+              </div>
+              <div>
+                <dt>Turns</dt>
+                <dd id="turn-count">—</dd>
+              </div>
+            </dl>
+
+            <form id="play-form" novalidate>
+              <div id="turn-list" class="turn-list"></div>
+              <button id="play-button" class="button button-primary button-wide" type="submit">
+                Lock route
+              </button>
+            </form>
+          </section>
+
+          <section id="result-panel" class="panel result-panel" aria-labelledby="result-title" hidden>
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">Server verdict</p>
+                <h2 id="result-title" tabindex="-1">Route accepted</h2>
+              </div>
+              <span id="acceptance-chip" class="verdict-chip">Accepted</span>
+            </div>
+
+            <div class="metrics" role="group" aria-label="Route result">
+              <div class="metric">
+                <span class="metric-label">Final square</span>
+                <strong id="final-position">—</strong>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Optimal square</span>
+                <strong id="optimal-position">—</strong>
+              </div>
+              <div class="metric metric-accent">
+                <span class="metric-label">Efficiency evidence</span>
+                <strong id="efficiency">—</strong>
+              </div>
+            </div>
+
+            <h3>Confirmed landings</h3>
+            <ol id="landing-list" class="landing-list"></ol>
+            <p class="evidence-note">
+              These values come from the game server. rsctf converts eligible, bounded
+              route-efficiency evidence into leaderboard scoring.
+            </p>
+          </section>
+        </div>
+
+        <aside class="board-column" aria-label="Circuit reference">
+          <section class="panel board-panel" aria-labelledby="board-title">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">Live map</p>
+                <h2 id="board-title">Circuit board</h2>
+              </div>
+              <span id="board-range" class="board-range">—</span>
+            </div>
+
+            <div class="legend" role="group" aria-label="Board legend">
+              <span><b class="legend-mark boost" aria-hidden="true">↗</b> boost</span>
+              <span><b class="legend-mark drop" aria-hidden="true">↘</b> serpent</span>
+              <span><b class="legend-mark player" aria-hidden="true">◆</b> last landing</span>
+            </div>
+
+            <div
+              id="board"
+              class="board"
+              role="img"
+              aria-label="The circuit board is loading."
+            ></div>
+            <p id="board-summary" class="board-summary">Waiting for board rules.</p>
+
+            <details class="transition-details">
+              <summary>Accessible transition list</summary>
+              <ul id="transition-list" class="transition-list"></ul>
+            </details>
+          </section>
+
+          <section class="panel rules-panel" aria-labelledby="rules-title">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">Server contract</p>
+                <h2 id="rules-title">Rules</h2>
+              </div>
+            </div>
+            <dl class="rule-facts">
+              <div>
+                <dt>Wave length</dt>
+                <dd id="wave-seconds">—</dd>
+              </div>
+              <div>
+                <dt>Choices</dt>
+                <dd id="rules-turn-count">—</dd>
+              </div>
+              <div>
+                <dt>Finish</dt>
+                <dd id="finish-position">—</dd>
+              </div>
+            </dl>
+            <ul id="rules-list" class="rules-list">
+              <li>Loading authoritative rules…</li>
+            </ul>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>Serpent Circuit · score routes, not client claims</p>
+    </footer>
+
+    <noscript>
+      <div class="noscript">JavaScript is required to submit a Serpent Circuit route.</div>
+    </noscript>
+  </body>
+</html>

@@ -27,8 +27,11 @@ The category directory must be one of `Misc`, `Crypto`, `Pwn`, `Web`,
 
 ## Event manifest
 
-Event settings seed a game only on its first import. A rescan preserves later
-game-level edits made in Admin, but deletes and recreates its challenges.
+Event settings seed a game only on its first import, so later Admin game edits persist.
+Challenges are reconciled by their binding-scoped manifest path: a same-path challenge is
+updated in place with its ID and accumulated state preserved. A missing manifest is guarded
+and disabled as a tombstone rather than deleted; a rename creates a new identity and sends
+the old path through that removal flow. A challenge type cannot change at the same path.
 
 | `.gzevent` key | Default | Notes |
 | --- | --- | --- |
@@ -59,9 +62,9 @@ The event-wide `ad:` block supports:
 | `warmupSeconds` | Delay before round/scoring activity starts |
 | `resetCooldownMinutes` | Cooldown between managed-service resets |
 | `allowSnapshotDownload` | Allow managed-service snapshot downloads |
-| `snapshotRetentionDays` | Persisted, but not currently read by runtime behavior |
-| `getflagWindowFraction` | Persisted, but not currently read by runtime behavior |
-| `minGracePeriodSeconds` | Persisted, but not currently read by runtime behavior |
+| `snapshotRetentionDays` | Expire downloadable service snapshots this many days after the event ends; omission means no expiry |
+| `getflagWindowFraction` | Bound the randomized checker-start jitter after flag publication as a fraction of the tick, subject to remaining runway |
+| `minGracePeriodSeconds` | Delay checker starts after flag publication and reserve enough runway to avoid a clipped terminal round |
 
 See the [warmup](../events/warmup/.gzevent) and
 [main-event](../events/main-event/.gzevent) manifests for safe hidden staging
@@ -83,7 +86,7 @@ configurations.
 | `flags` | absent | Static flag rows for attachment/container challenges; imported `DynamicAttachment` rows are not yet assigned per team; do not use for A&D or KotH |
 | `flagTemplate` | absent | Flag generator for `DynamicContainer` and A&D; use `[TEAM_HASH]` and, when rotation is needed, `[GUID]` |
 | `provide` | `dist/` convention | Attachment file or directory relative to the manifest |
-| `disableBloodBonus` | `false` | Disable first-solve bonuses for this challenge |
+| `disableBloodBonus` | `true` | Disable first-solve bonuses for this challenge; set `false` only for a deliberate bonus |
 | `ignore` | `false` | `true` prevents creation and is rejected by this catalog validator |
 | `variantMode` | `Disabled` | `PerParticipation` asks rsctf to derive one deterministic variant per accepted participation before the event |
 | `variantGeneratorImage` | absent | Optional registry fallback ending in `@sha256:<64 lowercase hex>`; omit when `generator/Dockerfile` is present |
@@ -147,7 +150,7 @@ is intentionally part of the public challenge contract.
 | `flagTemplate` | Container-local override for the top-level template |
 | `memoryLimit` | Memory limit in MiB; defaults to 64 for Jeopardy/KotH and 256 for managed A&D |
 | `cpuCount` | Backend-specific CPU limit; use `1` for the portable examples |
-| `storageLimit` | Persisted, but not currently enforced by the runtime |
+| `storageLimit` | Writable-layer limit in MiB: Kubernetes enforces ephemeral storage; Docker enforces an XFS project quota when supported and otherwise reports an unbounded fallback |
 | `exposePort` | Service port inside the challenge container |
 | `enableTrafficCapture` | Effective only for platform-hosted A&D services today; omit it elsewhere |
 | `enableSharedContainer` | Effective only for `StaticContainer`; all teams share one instance |
@@ -169,7 +172,7 @@ Dockerfile health checks; validate those runtimes through their actual backend t
 | Key | Import default | Behavior |
 | --- | --- | --- |
 | `checkerImage` | absent | Omit it; concrete checker-container references are rejected, while an adjacent `checker/run.py` entry point and its sibling source files are prepared automatically |
-| `allowEgress` | `false` | Controls outbound networking for platform-managed A&D and KotH containers, not checker or BYOC-host egress; this repository sets it to `true` explicitly so managed targets can reach the internet |
+| `allowEgress` | `false` | `false` still permits rsctf-injected private managed callback routes; `true` permits arbitrary Internet egress and requires Kubernetes because Docker rejects it. It does not control checker or BYOC-host egress |
 | `allowSelfReset` | `true` | Player reset for managed A&D; unavailable for BYOC |
 | `sshRequiresFlag` | `false` | Persisted but not currently enforced by SSH authorization; omit it from runnable templates |
 | `selfHosted` | `false` | `true` selects BYOC and is valid only for `AttackDefense` |
@@ -186,7 +189,7 @@ unpinned or ranged versions are rejected. Repository Bindings installs these
 packages and their dependencies into the immutable checker environment using
 wheels only, so preparation fails when a compatible wheel cannot be resolved.
 
-Both current KotH checkers use the Python standard library and need no dependency file.
+The current warmup KotH checkers use the Python standard library and need no dependency file.
 Future dependencies require PyPI access during a trusted repository scan or admin approval;
 review the repository commit and exact pins before preparing them. See
 [`checkers.md`](checkers.md).
@@ -202,12 +205,13 @@ Checks must be read-only and order-independent. Order and fingerprint variation
 is only defense-in-depth: it does not hide the checker source IP or by itself
 prevent source-IP allowlisting.
 
-Use these two A&D examples to compare the hosting modes:
+Use the current `Parcel Panic` package for the self-hosted/BYOC shape. A future
+platform-hosted package uses the corresponding managed settings:
 
 ```yaml
 # Platform-hosted: rsctf launches one service container per accepted team.
 ad:
-  allowEgress: true
+  allowEgress: false
   allowSelfReset: true
   selfHosted: false
 ```
@@ -222,17 +226,22 @@ For KotH, use only settings that affect the platform-owned hill:
 
 ```yaml
 ad:
-  allowEgress: true
+  allowEgress: false
 ```
+
+These portable examples need no arbitrary Internet access. `Draft Control` and `Serpent
+Circuit` deliberately use `false`; managed Leaderboard callbacks still work over the
+private routes rsctf injects. Use `true` only for a reviewed Internet dependency on a
+Kubernetes deployment.
 
 The repository manifest does not contain a reporter secret or claim-source switch. For a
 managed Leaderboard hill, import the ordinary `KingOfTheHill` manifest, configure rsctf's
 private `RSCTF_KOTH_REPORTER_BASE_URL`, then enable **Leaderboard** for that hill in the
 A&D / KotH operator view before the official snapshot is created. rsctf injects a
-lifecycle-bound credential and exact callback URLs into the managed target. It freezes
-`Marker` or `Api` as the claim source when official scoring starts; the target reports
-bounded native evidence, never a platform score. Challenge packages in this repository do
-not use a separately deployed scoring process.
+lifecycle-bound credential and exact callback URLs into the managed target. It freezes the
+selected Marker or managed Leaderboard claim source when official scoring starts; the target
+reports bounded native evidence, never a platform score. Challenge packages in this
+repository do not use a separately deployed scoring process.
 
 Even in BYOC mode, keep a local `src/Dockerfile`: rsctf builds it during import
 and streams the immutable challenge-service image to authorized teams. The BYOC
@@ -244,10 +253,13 @@ dependency and all base images for a completely Docker-Hub-free deployment.
 
 | Type/mode | Example |
 | --- | --- |
+| self-hosted/BYOC `AttackDefense` | [`AD/Web/parcel-panic`](../events/warmup/challenges/AD/Web/parcel-panic/) |
+| marker/Boot2Root `KingOfTheHill` | [`Koth/Web/draft-control`](../events/warmup/challenges/Koth/Web/draft-control/) |
+| managed-reporting `KingOfTheHill`, direct browser/API game | [`Koth/PPC/serpent-circuit`](../events/warmup/challenges/Koth/PPC/serpent-circuit/) |
 | managed-reporting `KingOfTheHill`, in-process coordinator with transport gateway | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |
 | managed-reporting `KingOfTheHill`, transport gateway | [`Koth/PPC/minions-in-32k`](../events/main-event/challenges/Koth/PPC/minions-in-32k/) |
 
-The field reference above covers other rsctf types, but this repository does not pretend its
-KotH packages are suitable templates for Jeopardy or A&D. For deterministic variants and
+The field reference above covers other rsctf types, but these packages remain specific to
+their delivery and claim contracts. For deterministic variants and
 trusted solve receipts, continue with [`provenance.md`](provenance.md). For custom functional
 checks, continue with [`checkers.md`](checkers.md).

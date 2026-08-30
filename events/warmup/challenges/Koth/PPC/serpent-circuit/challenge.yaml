@@ -1,0 +1,29 @@
+# Serpent Circuit is a shared, managed-reporting Leaderboard KotH game.
+name: "Serpent Circuit"
+author: "TCP1P"
+description: |
+  Every 60 seconds, every team in the official event roster receives the same
+  twelve ordered pairs of dice.
+  Choose one die from each pair and route your piece across a board of snakes
+  and ladders. The server applies every move in order, so plan the complete
+  route before spending your one run for the wave.
+
+  Authenticate with your current KotH capability in the game UI. RSCTF scores
+  the bounded `route-efficiency` ratio reported by the managed game server:
+  `(finalPosition - startPosition) / (optimalPosition - startPosition)`.
+  A unique positive leader earns the wave Crown; an exact tie earns no Crown.
+  The game reports native route evidence, never platform points or raw tokens.
+type: KingOfTheHill
+category: PPC
+disableBloodBonus: true
+
+container:
+  memoryLimit: 128
+  cpuCount: 1
+  exposePort: 8080
+
+ad:
+  # The lifecycle callback remains reachable on rsctf's private service
+  # network. Arbitrary internet egress is unnecessary, so this also works on
+  # the default Docker backend instead of requiring Kubernetes NetworkPolicy.
+  allowEgress: false

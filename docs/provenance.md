@@ -38,8 +38,7 @@ array order preserved. rsctf independently normalizes and checks that value.
 Validate the package and inspect its discovered build context locally:
 
 ```sh
-make validate
-make matrix
+make check RSCTF=/path/to/rsctf
 ```
 
 CI builds the emitted generator context. The hidden Repository Bindings scan is the

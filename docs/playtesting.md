@@ -13,9 +13,11 @@ routing into the full clean-room workflow.
 From the repository root:
 
 ```sh
-make validate
-make matrix
+make check RSCTF=/path/to/rsctf
 ```
+
+Use `make check` without the assignment when the matching official binary is already on
+`PATH`.
 
 When container or generator code changed, require the dynamic GitHub container job
 to pass (or reproduce its Docker builds locally). It builds every context emitted by

@@ -1,0 +1,401 @@
+"""Regression tests for the authoritative Serpent Circuit game state."""
+
+import hashlib
+from http.client import HTTPConnection
+import io
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+import socket
+import time
+import unittest
+from unittest.mock import patch
+from threading import Thread
+
+import app
+
+
+LOCAL_TOKEN = "koth_local_player_12345"
+MANAGED_ENV = {
+    "RSCTF_KOTH_GAME_ID": "7",
+    "RSCTF_KOTH_CHALLENGE_ID": "11",
+    "RSCTF_KOTH_PLATFORM_URL": "https://rsctf.internal",
+    "RSCTF_KOTH_CONTEXT_URL": "https://rsctf.internal/context",
+    "RSCTF_KOTH_OBSERVATION_URL": "https://rsctf.internal/observations",
+    "RSCTF_KOTH_REPORTER_SECRET": "koth_target_" + "s" * 43,
+}
+
+
+class GameTests(unittest.TestCase):
+    def setUp(self):
+        with app.state_lock:
+            app.sessions.clear()
+            app.started_runs.clear()
+            app.wave_admissions.clear()
+            app.events.clear()
+            app.next_cursor = 1
+        app.publish_managed_context(None)
+
+    def test_board_and_dice_sequence_are_deterministic_and_original(self):
+        first = app.turn_pairs(1_800_000)
+        self.assertEqual(first, app.turn_pairs(1_800_000))
+        self.assertNotEqual(first, app.turn_pairs(1_860_000))
+        self.assertEqual(len(first), app.TURN_COUNT)
+        self.assertTrue(all(len(pair) == 2 and pair[0] != pair[1] for pair in first))
+        self.assertTrue(all(1 <= die <= 6 for pair in first for die in pair))
+        self.assertEqual(len(app.TRANSITIONS), 14)
+        self.assertFalse(set(app.TRANSITIONS) & set(app.TRANSITIONS.values()))
+        self.assertIn(
+            "Route efficiency is (finalPosition - startPosition) / (optimalPosition - startPosition).",
+            app.rules_document()["rules"],
+        )
+
+    def test_optimum_matches_exhaustive_ordered_routes(self):
+        turns = app.turn_pairs(1_800_000)
+        positions = {app.START_POSITION}
+        for pair in turns:
+            positions = {
+                app.apply_roll(position, roll)[0]
+                for position in positions
+                for roll in pair
+            }
+        self.assertEqual(app.optimal_position(turns), max(positions))
+
+    def test_gameplay_fails_closed_without_managed_or_explicit_local_mode(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(app.runtime_mode(), "unconfigured")
+            with self.assertRaisesRegex(app.GameError, "not configured") as raised:
+                app.create_session(LOCAL_TOKEN, 1_800_100)
+        self.assertEqual(raised.exception.status, 503)
+
+    def test_partial_environment_fails_closed_but_full_environment_is_managed(self):
+        with patch.dict(os.environ, {"RSCTF_KOTH_GAME_ID": "7"}, clear=True):
+            self.assertEqual(app.runtime_mode(), "misconfigured")
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                app.create_session(LOCAL_TOKEN, 1_800_100)
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            self.assertEqual(app.runtime_mode(), "managed")
+            self.assertEqual(app.capability_config().challenge_id, 11)
+
+    def test_invalid_full_reporter_environment_fails_gameplay_closed(self):
+        invalid = dict(MANAGED_ENV)
+        invalid["RSCTF_KOTH_REPORTER_SECRET"] = "not-a-target-secret"
+        with patch.dict(os.environ, invalid, clear=True):
+            self.assertEqual(app.runtime_mode(), "misconfigured")
+            with self.assertRaisesRegex(RuntimeError, "invalid managed reporter"):
+                app.create_session(LOCAL_TOKEN, 1_800_100)
+
+    def test_local_session_creation_and_play_are_idempotent(self):
+        timestamp = 1_800_100
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+            duplicate = app.create_session(LOCAL_TOKEN, timestamp + 1)
+            self.assertEqual(duplicate, session)
+
+        choices = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+        result = app.play_session(session["sessionId"], choices, timestamp + 2)
+        self.assertTrue(result["accepted"])
+        self.assertLessEqual(
+            result["efficiency"]["earned"], result["efficiency"]["possible"]
+        )
+        self.assertEqual(len(result["landings"]), app.TURN_COUNT)
+        replay = app.play_session(session["sessionId"], choices, timestamp + 3)
+        self.assertEqual(replay, result)
+        changed = [dict(selection) for selection in choices]
+        changed[0]["choice"] = 1
+        with self.assertRaises(app.GameError) as conflict:
+            app.play_session(session["sessionId"], changed, timestamp + 4)
+        self.assertEqual(conflict.exception.status, 409)
+
+    def test_concurrent_session_admission_is_idempotent_per_team_wave(self):
+        timestamp = 1_800_100
+
+        def start():
+            try:
+                return app.create_session(LOCAL_TOKEN, timestamp)["sessionId"]
+            except app.GameError as error:
+                return error.status
+
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _index: start(), range(2)))
+        self.assertEqual(len(set(results)), 1)
+
+    def test_current_team_wave_admission_budget_is_bounded(self):
+        timestamp = 1_800_100
+        start_ms = app.wave_start(timestamp)
+        with app.state_lock:
+            app.wave_admissions[(start_ms, 0, 0)] = app.MAX_WAVE_ADMISSIONS
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            with self.assertRaisesRegex(app.GameError, "admission budget") as full:
+                app.create_session(LOCAL_TOKEN, timestamp)
+        self.assertEqual(full.exception.status, 503)
+
+    def test_order_validation_does_not_spend_the_session(self):
+        timestamp = 1_800_100
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+        wrong = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+        wrong[3]["turn"] = 9
+        with self.assertRaises(app.GameError) as malformed:
+            app.play_session(session["sessionId"], wrong, timestamp + 1)
+        self.assertEqual(malformed.exception.status, 400)
+        correct = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+        self.assertTrue(
+            app.play_session(session["sessionId"], correct, timestamp + 2)["accepted"]
+        )
+
+    def test_unhashable_choice_is_a_bounded_player_error(self):
+        selections = [
+            {"turn": turn, "choice": 0}
+            for turn in range(1, app.TURN_COUNT + 1)
+        ]
+        selections[0]["choice"] = []
+        with self.assertRaises(app.GameError) as invalid:
+            app._validated_choices(selections)
+        self.assertEqual(invalid.exception.status, 400)
+
+    def test_server_applies_transport_and_exact_finish_rule(self):
+        self.assertEqual(app.apply_roll(1, 2), (24, 3, 24))
+        self.assertEqual(app.apply_roll(94, 3), (76, 97, 76))
+        self.assertEqual(app.apply_roll(99, 4), (99, None, None))
+
+    def test_evidence_retains_only_the_canonical_hash(self):
+        timestamp = 1_800_100
+        expected_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+        choices = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+        app.play_session(session["sessionId"], choices, timestamp + 1)
+        page = app.read_evidence_page(0)
+        self.assertEqual(page["events"][0]["tokenHash"], expected_hash)
+        self.assertNotIn(LOCAL_TOKEN, repr(app.sessions))
+        self.assertNotIn(LOCAL_TOKEN, repr(page))
+        self.assertEqual(page["events"][0]["cycleNumber"], 0)
+        self.assertEqual(page["events"][0]["resetAttempt"], 0)
+
+    def test_wave_expiry_consumes_the_session_without_evidence(self):
+        timestamp = 1_800_100
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+        choices = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+        with self.assertRaises(app.GameError) as expired:
+            app.play_session(session["sessionId"], choices, session["waveEndsAt"])
+        self.assertEqual(expired.exception.status, 410)
+        self.assertEqual(app.read_evidence_page(0)["events"], [])
+
+    def test_accepted_connections_receive_the_slow_client_deadline(self):
+        server = app.Server(("127.0.0.1", 0), app.Handler)
+        client = socket.create_connection(server.server_address, timeout=1)
+        accepted, _address = server.get_request()
+        try:
+            self.assertEqual(accepted.gettimeout(), app.CONNECTION_TIMEOUT_SECONDS)
+        finally:
+            client.close()
+            accepted.close()
+            server.server_close()
+
+    def test_managed_roster_authentication_is_local_and_lifecycle_fenced(self):
+        timestamp = 1_800_100
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        initial = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=2_000_000,
+            cycle_ends_at=3_000_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(initial)
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+            self.assertEqual(session["waveId"], "serpent-1800000")
+
+            rotated = app.RoundContext(
+                **{**initial.__dict__, "opaque": "c" * 64, "reset_attempt": 1}
+            )
+            app.publish_managed_context(rotated)
+            replacement = app.create_session(LOCAL_TOKEN, timestamp + 1)
+            self.assertNotEqual(replacement["sessionId"], session["sessionId"])
+            choices = [
+                {"turn": turn["turn"], "choice": 0}
+                for turn in session["turns"]
+            ]
+            with self.assertRaises(app.GameError) as stale:
+                app.play_session(session["sessionId"], choices, timestamp + 1)
+        self.assertEqual(stale.exception.status, 410)
+
+    def test_managed_roster_rejects_unknown_and_stale_capabilities(self):
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=2_000_000,
+            cycle_ends_at=3_000_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(context)
+            with self.assertRaises(app.GameError) as unknown:
+                app.create_session("koth_unknown_player_12345", 1_800_100)
+            self.assertEqual(unknown.exception.status, 403)
+            with patch("app.time.monotonic", return_value=time.monotonic() + 60):
+                with self.assertRaises(app.GameError) as stale:
+                    app.create_session(LOCAL_TOKEN, 1_800_100)
+            self.assertEqual(stale.exception.status, 503)
+
+    def test_cycle_cutoff_rejects_a_partial_final_wave(self):
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=1_800_001,
+            cycle_ends_at=1_880_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(context)
+            with self.assertRaises(app.GameError) as cutoff:
+                app.create_session(LOCAL_TOKEN, 1_800_100)
+        self.assertEqual(cutoff.exception.status, 409)
+
+        permitted = app.RoundContext(
+            **{**context.__dict__, "opaque": "c" * 64, "cycle_ends_at": 1_880_001}
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(permitted)
+            session = app.create_session(LOCAL_TOKEN, 1_800_100)
+        self.assertEqual(session["waveEndsAt"], 1_860_000)
+
+    def test_event_start_rejects_an_initial_partial_wave(self):
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=1_830_000,
+            ends_at=2_000_000,
+            cycle_ends_at=3_000_000,
+            scoring_floor=1_860_000,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(context)
+            with self.assertRaises(app.GameError) as initial:
+                app.create_session(LOCAL_TOKEN, 1_830_100)
+            session = app.create_session(LOCAL_TOKEN, 1_860_000)
+        self.assertEqual(initial.exception.status, 409)
+        self.assertEqual(session["waveId"], "serpent-1860000")
+
+    def test_request_reader_bounds_headers_and_body_together(self):
+        reader = app._BoundedReader(io.BytesIO(b"a" * 20), 12)
+        self.assertEqual(reader.read(12), b"a" * 12)
+        with self.assertRaises(OSError):
+            reader.read(1)
+
+    def test_health_uses_reserved_capacity_during_slow_player_requests(self):
+        clients = []
+        with patch.multiple(
+            app,
+            MAX_HTTP_WORKERS=12,
+            MAX_REGULAR_HTTP_WORKERS=8,
+            MAX_REQUESTS_PER_CLIENT=8,
+            ABSOLUTE_REQUEST_SECONDS=2,
+        ):
+            server = app.Server(("127.0.0.1", 0), app.Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for _index in range(8):
+                client = socket.create_connection(server.server_address, timeout=1)
+                client.sendall(
+                    b"POST /api/play HTTP/1.1\r\n"
+                    b"Host: arena\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Content-Length: 100\r\n\r\n"
+                    b"{"
+                )
+                clients.append(client)
+            deadline = time.monotonic() + 1
+            while len(server._admissions) < 8 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(len(server._admissions), 8)
+
+            connection = HTTPConnection(*server.server_address, timeout=1)
+            connection.request("GET", "/healthz", headers={"Connection": "close"})
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(body)["status"], "ok")
+        finally:
+            for client in clients:
+                client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_deadline_thread_failure_releases_admission(self):
+        server = app.Server(("127.0.0.1", 0), app.Handler)
+        request, peer = socket.socketpair()
+        client = "127.0.0.1"
+        server._request_slots.acquire()
+        server._regular_slots.acquire()
+        with server._client_lock:
+            server._client_requests[client] = 1
+            server._admissions[id(request)] = (client, True)
+        try:
+            with patch.object(app.threading.Timer, "start", side_effect=RuntimeError):
+                with self.assertRaises(RuntimeError):
+                    server.process_request_thread(request, (client, 12345))
+            self.assertEqual(server._admissions, {})
+            self.assertEqual(server._client_requests, {})
+            self.assertEqual(server._request_slots._value, app.MAX_HTTP_WORKERS)
+            self.assertEqual(server._regular_slots._value, app.MAX_REGULAR_HTTP_WORKERS)
+        finally:
+            request.close()
+            peer.close()
+            server.server_close()
+
+
+if __name__ == "__main__":
+    unittest.main()

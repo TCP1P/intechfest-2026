@@ -30,13 +30,13 @@ jobs:
 
       - name: Validate warmup manifests with rsctf
         id: warmup
-        uses: dimasma0305/rsctf@v0.1.93
+        uses: dimasma0305/rsctf@v0.1.102
         with:
           path: events/warmup
 
       - name: Validate main-event manifests with rsctf
         id: main_event
-        uses: dimasma0305/rsctf@v0.1.93
+        uses: dimasma0305/rsctf@v0.1.102
         with:
           path: events/main-event
 
@@ -100,7 +100,7 @@ jobs:
           cache-dependency-path: |
             events/**/go.mod
 
-      - name: Exercise all Go components
+      - name: Exercise all challenge components
         run: make components
 
       - name: Parse deployment entry points
@@ -178,11 +178,26 @@ jobs:
             exit 1
           fi
 
+          marker_fixture_dir="$(mktemp -d)"
+          chmod 1777 "$marker_fixture_dir"
+          printf 'unclaimed\n' > "$marker_fixture_dir/king"
+          chmod 0666 "$marker_fixture_dir/king"
+
+          container_id=''
+          cleanup() {
+            if [[ -n "$container_id" ]]; then
+              docker rm --force "$container_id" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$marker_fixture_dir"
+          }
+          trap cleanup EXIT
+
           container_id="$(docker run \
             --detach \
             --network none \
             --read-only \
             --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --mount "type=bind,source=$marker_fixture_dir,target=/koth" \
             --cap-drop ALL \
             --security-opt no-new-privileges=true \
             --pids-limit 512 \
@@ -192,10 +207,6 @@ jobs:
             --env 'RYTHME_STATE_PATH=/tmp/rythme-arena.json' \
             --env 'RYTHME_BEATMAP_DIR=/tmp/beatmaps' \
             "$IMAGE")"
-          cleanup() {
-            docker rm --force "$container_id" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
 
           for _ in {1..60}; do
             state="$(docker inspect \

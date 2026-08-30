@@ -17,7 +17,7 @@ because its manifest parses or its author solver works.
    Confirm every package has a concise `solution/README.md` and simple `solution/solve.py`,
    neither enters a player/build surface, and no live secret or unintended artifact is
    committed.
-3. Run `make validate` and `make matrix` with the official rsctf binary matching the target
+3. Run `make check RSCTF=/path/to/rsctf` with the official rsctf binary matching the target
    release. Require zero warnings. Confirm every direct service/generator context appears in
    the emitted matrix; do not use a hand-written list or repository validator.
 4. Require applicable component tests and target-architecture builds. Every long-running

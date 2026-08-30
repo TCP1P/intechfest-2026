@@ -6,7 +6,11 @@ points. rsctf authenticates the target, binds evidence to the active lifecycle
 and round, resolves capability hashes to eligible teams, normalizes objectives,
 validates the Crown, and calculates the scoreboard result.
 
-The two main-event examples use this model:
+Three packages use this model:
+
+- [Serpent Circuit](../events/warmup/challenges/Koth/PPC/serpent-circuit/) owns its original
+  Snake & Ladders wave state and reports bounded `route-efficiency` evidence directly from
+  the same process. Its player-facing HTTP transport needs no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
   inside the Go coordinator. Its transport-only
@@ -25,6 +29,12 @@ hill causes rsctf to create a reporter credential before the crash-recoverable
 replacement container is launched. The same reset retry reuses that credential;
 a new reset rotates it.
 
+This private managed callback path works with `ad.allowEgress: false`; it does not require
+general Internet access. Set `allowEgress: true` only when the gameplay itself has a reviewed
+arbitrary Internet dependency. Competitive containers support that broader policy only on
+Kubernetes; the Docker backend rejects it. `Draft Control` and `Serpent Circuit` deliberately
+use `false`.
+
 rsctf injects these values into only that target:
 
 | Environment variable | Meaning |
@@ -41,8 +51,17 @@ or GitHub Actions. Challenge code reads them when present and should stay
 healthy without them so rsctf can provision the pre-cycle target. Gameplay that
 requires event identity must fail closed until the managed values are present.
 
+RSCTF runs the challenge checker before it activates a prepared cycle. During
+that readiness phase the managed environment is present, but the context route
+is intentionally inactive. A Leaderboard checker must therefore distinguish
+preactivation from misconfiguration: accept a healthy managed target whose
+read-only capability probe returns the service's exact roster-not-ready `503`,
+and accept the exact invalid-capability `403` after context becomes active.
+Never require `scoringReady: true` as a precondition for activation, and never
+accept an arbitrary `503` body.
+
 The reporter secret is valid only for the exact game, challenge, cycle, reset
-attempt, target row, container identity, event window, and API scoring mode that
+attempt, target row, container identity, event window, and managed Leaderboard mode that
 created it. rsctf rejects it after a target reset or ownership change. A target
 compromise can forge that target's native evidence for its remaining lifecycle;
 it cannot choose points, reuse the credential for another hill, or survive a

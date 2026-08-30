@@ -14,7 +14,7 @@ receives, then return to the author context to review the completed report.
    Read [exposure and isolation](references/exposure-isolation.md).
 2. Select exactly one mode: `service`, `handout`, `hybrid`, or `byoc`. If the real delivery
    cannot be determined, ask the author instead of choosing the more revealing mode.
-3. Run `make validate` and `make matrix` with the matching official rsctf binary. Build and
+3. Run `make check RSCTF=/path/to/rsctf` with the matching official rsctf binary. Build and
    health-check changed contexts, then exercise the ordinary player-visible protocol. Keep
    author build logs and administration outside the room.
 4. Rebuild the exact player artifact or issue a redacted target. Hash handouts. For BYOC,

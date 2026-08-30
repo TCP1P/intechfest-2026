@@ -29,12 +29,14 @@ Do not use author or solution context as the blind solver.
   `events/<event>/challenges/<mode>/<category>/<slug>/challenge.yaml`, where `<event>` is
   `warmup` or `main-event`, mode is `AD`, `Jeopardy`, or `Koth`, and category is supported by
   rsctf.
-- The warmup currently has no challenge. Do not invent or duplicate one merely to populate
-  the directory.
+- The warmup currently has three distinct engine examples. Do not duplicate one into another
+  mode or silently change its player delivery or claim source.
 - Keep Jeopardy scoring fields absent when rsctf defaults are intended. They do not belong
   on A&D or KotH manifests.
-- Set `ad.allowEgress: true` on managed A&D and KotH manifests so challenge targets can
-  reach the internet. Use `false` only for a deliberate reviewed isolation requirement.
+- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's
+  private callback routes. Set it to `true` only for deliberate arbitrary Internet egress;
+  that mode requires the Kubernetes backend because Docker rejects it. `Draft Control`
+  and `Serpent Circuit` deliberately use `false`. BYOC host egress is outside this field.
 - Put exact player downloads in `dist/`, image input in `src/`, A&D/KotH checks in
   `checker/`, an unavoidable transport-only adapter in `gateway/`, and organizer material
   in `solution/`. Leaderboard reporting normally runs inside the managed target in `src/`.
@@ -46,6 +48,21 @@ Do not use author or solution context as the blind solver.
   separate from checker correctness and solvability.
 - Keep validation on the official `rsctf challenge check` command through the maintained
   `dimasma0305/rsctf` action.
+
+## Current warmup contracts
+
+- `Parcel Panic` is self-hosted/BYOC Attack & Defense. The team-owned service reads the
+  relay-managed rotating flag file on every request; its checker verifies health, public
+  parcel behavior, and the exact current flag through the legitimate vault contract.
+- `Draft Control` is a shared Boot2Root/Marker KotH challenge. Its intended path atomically
+  writes the current player capability to `/koth/king`; it has no managed reporter and must
+  not be configured as Leaderboard.
+- `Serpent Circuit` is a shared managed Leaderboard KotH scoring game. The target owns
+  server-authoritative Snake & Ladders waves, retains only authenticated capability hashes,
+  and reports bounded route-efficiency evidence in process. It has no marker or gateway.
+
+All warmup checkers are bounded and read-only. The A&D checker receives the current flag;
+both KotH checkers receive no flag and never inspect or alter their claim source.
 
 ## Current main-event contracts
 
@@ -76,10 +93,11 @@ real player delivery.
 From the repository root run:
 
 ```sh
-make check
+make check RSCTF=/path/to/rsctf
 ```
 
-Set `RSCTF` to the matching official binary when it is not on `PATH`. Runtime changes also
+Use `make check` without the assignment when the matching official binary is already on
+`PATH`. Runtime changes also
 require the relevant language tests, target-architecture image builds, Docker health,
 player-visible protocol checks, checker verdict tests, and a real multi-team KotH rehearsal.
 Import/release work remains incomplete until hidden staging, normal-player access checks,

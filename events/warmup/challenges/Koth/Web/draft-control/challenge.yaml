@@ -1,0 +1,24 @@
+# Draft Control is a shared marker-based KotH warmup challenge.
+name: "Draft Control"
+author: "dimasma0305"
+description: |
+  The publishing desk accepts edits only for drafts that already exist. Inspect
+  its public API, then use your current KotH token to take control of the marker
+  at `/koth/king`.
+
+  Start with `GET /api/info`. A successful save only changes the target; rsctf
+  attributes control on its next scoring tick.
+type: KingOfTheHill
+category: Web
+disableBloodBonus: true
+
+container:
+  memoryLimit: 64
+  cpuCount: 1
+  exposePort: 8080
+
+ad:
+  # Draft Control needs only the private competition network. Keeping arbitrary
+  # internet egress off makes the same package portable across Docker and
+  # Kubernetes backends.
+  allowEgress: false

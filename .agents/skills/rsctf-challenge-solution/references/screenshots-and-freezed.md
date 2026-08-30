@@ -19,9 +19,24 @@ the README instead.
 
 ## Annotated source with freezed
 
-`freezed` renders the real file with syntax highlighting and annotations. Use `--circle` for
-one vulnerable region and repeated `--mark` options for several related regions. Select code
-by quoted text when practical so the command survives harmless line movement.
+The `--arrow` examples require the TCP1P Freezed fork at commit
+[`7acde4f1f02abda8224b740a722b32652d1907a2`](https://github.com/dimasma0305/freezed/commit/7acde4f1f02abda8224b740a722b32652d1907a2).
+No tagged Freezed release contains this feature. Build and install that exact checkout under
+the `freezed` binary name, then fail fast before rendering:
+
+```sh
+freezed --help | grep -F -- '--arrow' >/dev/null
+```
+
+Do not substitute the upstream `freeze` binary or an older local `freezed`; both can reject
+the documented option.
+
+`freezed` renders the real file with syntax highlighting and annotations. Use `--arrow` to
+point from a right-hand gutter to one vulnerable region without covering the source. Repeat
+`--arrow` for independent targets, or use repeated `--mark` options when numbered
+relationships are clearer. A selector may be an absolute line (`12`), an inclusive range
+(`12,14`), unique quoted source text, or a text-delimited block (`start..end`). Prefer quoted
+source text when practical so the command survives harmless line movement.
 
 ```sh
 freezed path/to/source.py \
@@ -32,7 +47,7 @@ freezed path/to/source.py \
   --padding 20 \
   --margin 26 \
   --title 'player-visible/path/to/source.py' \
-  --circle 'vulnerable_call(user_input)' \
+  --arrow 'vulnerable_call(user_input)' \
   -o solution/assets/vuln-input-flow.png
 ```
 

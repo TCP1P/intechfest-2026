@@ -31,9 +31,8 @@ applies these gates without authorizing an import or enablement by itself.
 
 ## Functional verification
 
-- [ ] `make validate` passes with the official `rsctf` binary matching the target
-      release.
-- [ ] `make matrix` succeeds and lists every expected build context.
+- [ ] `make check RSCTF=/path/to/rsctf` passes with the official binary matching the target
+      release; validation has zero warnings and the matrix lists every expected context.
 - [ ] GitHub Actions passes the imported `dimasma0305/rsctf` step, pinned to the
       target rsctf release (or to an action commit plus matching exact image digest).
 - [ ] Every direct `src/Dockerfile` and `generator/Dockerfile` appears in the
@@ -46,7 +45,8 @@ applies these gates without authorizing an import or enablement by itself.
 - [ ] A second trusted maintainer reproduced the documented organizer solution or reference
       solver from a clean target/handout for the exact candidate revision.
 - [ ] A&D checks retrieve the current rotating flag through player-visible behavior.
-- [ ] KotH checks are read-only and do not read or alter the ownership/control source.
+- [ ] KotH checks are read-only and do not read or alter the Marker or managed Leaderboard
+      evidence source.
 - [ ] Resource limits, writable paths, restarts, and flag rotation were tested on the
       intended container backend.
 
@@ -69,8 +69,8 @@ applies these gates without authorizing an import or enablement by itself.
 - [ ] Every local service/generator build completed and its log was reviewed.
 - [ ] A normal non-admin player account can access only the intended pre-start and
       player-visible surfaces.
-- [ ] A rescan was rehearsed away from a live event; challenge ID/admin-edit churn is
-      understood.
+- [ ] A rescan was rehearsed away from a live event; same-path updates preserved challenge
+      identity/state, and every intended rename or guarded tombstone was reviewed.
 - [ ] A&D or KotH changes passed a full multi-team lifecycle rehearsal, including
       scheduling, VPN/BYOC paths, flag delivery, checking, reset, and scoring.
 - [ ] Managed KotH reporting was exercised through an actual rsctf lifecycle: the target

@@ -10,6 +10,33 @@ Use the event title exactly as `INTECHFEST 2026`. The warmup and main event are 
 rsctf games; challenge copy should not imply that progress, credentials, or scheduling carry
 between them.
 
+## Parcel Panic
+
+Parcel Panic is a compact parcel-publishing service used to teach the BYOC Attack & Defense
+flow. Player copy can use warehouse and dispatch language, but it must state the issued-host
+setup, service contract, rotating-flag objective, and game-system scope directly. Do not turn
+the path clue into lore or imply that teams may attack rsctf infrastructure.
+
+## Draft Control
+
+Draft Control is a shared page publisher in which teams compete for the live editorial
+control marker. Use `draft`, `publish`, `revision`, `control`, and `hold`. The public objective
+must name `/koth/king` and the Boot2Root capability workflow. Do not describe it as a
+Leaderboard game or suggest that ordinary content points are scored.
+
+## Serpent Circuit
+
+Serpent Circuit is an original server-authoritative Snake & Ladders route-optimization game.
+Use `wave`, `route`, `roll`, `snake`, `ladder`, `efficiency`, and `Crown`. The browser board
+uses CSS and text labels rather than copied artwork, exposes the same rules as the API, and
+must remain keyboard-operable, screen-reader understandable, and usable at 320 px.
+
+The gameplay concept was requested with
+[`MichaelDepp/snake-ladder` at `7bf22a3`](https://github.com/MichaelDepp/snake-ladder/tree/7bf22a3d7f14c18984ab67782531fed1a297169a)
+as a reference. That repository publishes no license, so this repository copies none of its
+HTML, JavaScript, CSS, questions, images, or screenshots. Keep the pinned reference and this
+provenance boundary in the organizer solution.
+
 ## Rythme
 
 Rythme is a near-future professional rhythm-game qualifier operated by Syncore. Teams are

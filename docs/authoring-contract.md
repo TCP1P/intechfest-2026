@@ -32,8 +32,8 @@ file between author, player, runtime, checker, or organizer surfaces for conveni
 The repository contains exactly two sibling event roots: `events/warmup/` and
 `events/main-event/`. Each `.gzevent` owns only the challenge manifests below its event
 directory. Never add a root `.gzevent`, nest one event below another, or move a package
-between events without an explicit event decision. The warmup is intentionally empty until a
-real warmup challenge exists.
+between events without an explicit event decision. A package stays in the event whose
+schedule, engine policy, and player contract it was designed for.
 
 Human maintainer documentation belongs in `docs/`. Agent instructions belong in
 `AGENTS.md` and `.agents/`. Each event's `challenges/` tree contains package inputs, player
@@ -100,9 +100,10 @@ for the organizer reference solver and must not enter `dist/`.
 - Use descriptive lowercase filenames inside a package. Follow the language ecosystem
   only where casing is meaningful.
 
-Renaming a package path does not preserve an imported challenge row. A rescan recreates
-challenge records, so coordinate path or display-name changes with staging and any
-automation that records challenge IDs.
+The binding-scoped manifest path is the durable imported challenge identity. A later scan
+updates a same-path challenge in place and preserves its ID and accumulated state. Renaming
+a package path creates a new challenge and sends the old path through guarded tombstoning;
+changing challenge type at the same path is rejected. Stage either operation explicitly.
 
 ## Minimal layout by challenge type
 
@@ -267,8 +268,10 @@ remove inapplicable keys. Do not invent metadata aliases or CI-only fields.
   A&D or KotH scoring.
 - Use `flags` only for supported Jeopardy static flag rows. Use `flagTemplate` for
   dynamic containers and A&D. KotH uses its control-source contract instead of flags.
-- Set `ad.allowEgress: true` for managed A&D and KotH packages so targets can reach the
-  internet. Use `false` only for a deliberate reviewed isolation requirement.
+- Keep `ad.allowEgress: false` when a managed A&D or KotH target needs only rsctf's private
+  callback routes. Use `true` only for deliberate arbitrary Internet egress, which requires
+  Kubernetes because the Docker backend rejects it. The warmup `Draft Control` and `Serpent
+  Circuit` packages deliberately use `false`; BYOC host egress is not controlled here.
 - Use a relative `provide` path and keep the target inside the package. This repository
   names `dist` explicitly when a handout exists.
 - Omit `containerImage` when Repository Bindings should build the adjacent
@@ -337,8 +340,8 @@ mapping. `run.py` owns the challenge protocol and assertions. An optional
 
 Checks are bounded, read-only, order-independent, and limited to the supplied target IP
 and port. An A&D suite verifies ordinary service health and the exact current flag. A KotH
-suite verifies ordinary function without reading or modifying the marker or API control
-source. See [Checker development](checkers.md).
+suite verifies ordinary function without reading or modifying the marker or managed
+Leaderboard evidence source. See [Checker development](checkers.md).
 
 ### Generator
 
@@ -412,7 +415,7 @@ only steps that genuinely do not apply.
    organizer solution as it becomes real.
 4. **Test components:** run language tests, build the exact handout or image, exercise
    malformed input and resource limits, and verify health behavior.
-5. **Validate structure:** run `make validate` and `make matrix` with the rsctf binary that
+5. **Validate structure:** run `make check RSCTF=/path/to/rsctf` with the rsctf binary that
    matches the target release.
 6. **Prove the intended solve:** run the organizer solver against a clean target or extracted
    handout and update the solution's revision, hashes, commands, and evidence.
