@@ -761,7 +761,9 @@ class Server(BoundedThreadingHTTPServer):
     max_regular_workers = MAX_REGULAR_HTTP_WORKERS
     max_requests_per_client = MAX_REQUESTS_PER_CLIENT
     max_pending_requests = MAX_PENDING_HTTP_REQUESTS
-    request_queue_size = MAX_PENDING_HTTP_REQUESTS
+    # Leave room for protected health traffic to finish its TCP handshake
+    # while the classifier evicts an older silent connection.
+    request_queue_size = MAX_PENDING_HTTP_REQUESTS + MAX_HTTP_WORKERS
     request_stream_bytes = MAX_REQUEST_STREAM_BYTES
     read_timeout_seconds = CONNECTION_TIMEOUT_SECONDS
     absolute_request_seconds = ABSOLUTE_REQUEST_SECONDS

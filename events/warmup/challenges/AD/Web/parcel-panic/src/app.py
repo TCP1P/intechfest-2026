@@ -26,6 +26,7 @@ MAX_NAME_BYTES = 128
 MAX_REQUEST_TARGET_BYTES = 2048
 MAX_REQUEST_STREAM_BYTES = 12 * 1024
 MAX_PENDING_REQUESTS = 128
+LISTEN_BACKLOG = MAX_PENDING_REQUESTS + MAX_CONCURRENT_REQUESTS
 READ_TIMEOUT_SECONDS = 4
 ABSOLUTE_REQUEST_SECONDS = 6
 CLASSIFIER_POLL_SECONDS = 0.025
@@ -229,7 +230,9 @@ class ParcelServer(ThreadingMixIn, HTTPServer):
     max_requests_per_client = MAX_REQUESTS_PER_CLIENT
     max_pending_requests = MAX_PENDING_REQUESTS
     absolute_request_seconds = ABSOLUTE_REQUEST_SECONDS
-    request_queue_size = MAX_PENDING_REQUESTS
+    # Leave room for protected requests to finish their TCP handshake while
+    # the classifier evicts an older silent connection from its bounded set.
+    request_queue_size = LISTEN_BACKLOG
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self.worker_slots = BoundedSemaphore(self.max_workers)

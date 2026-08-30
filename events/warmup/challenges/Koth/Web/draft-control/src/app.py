@@ -27,6 +27,7 @@ REQUEST_TIMEOUT_SECONDS = 4
 MAX_ACTIVE_REQUESTS = 64
 MAX_REGULAR_REQUESTS = 56
 MAX_REQUESTS_PER_CLIENT = 16
+LISTEN_BACKLOG = MAX_PENDING_REQUESTS + MAX_ACTIVE_REQUESTS
 ABSOLUTE_REQUEST_SECONDS = 6
 CLASSIFIER_POLL_SECONDS = 0.025
 WRITE_LOCK = threading.Lock()
@@ -183,7 +184,9 @@ class BoundedHTTPServer(ThreadingHTTPServer):
     """Threaded HTTP server with a small fixed concurrency ceiling."""
 
     daemon_threads = True
-    request_queue_size = MAX_PENDING_REQUESTS
+    # Leave room for protected requests to finish their TCP handshake while
+    # the classifier evicts an older silent connection from its bounded set.
+    request_queue_size = LISTEN_BACKLOG
     max_workers = MAX_ACTIVE_REQUESTS
     max_regular_workers = MAX_REGULAR_REQUESTS
     max_requests_per_client = MAX_REQUESTS_PER_CLIENT
