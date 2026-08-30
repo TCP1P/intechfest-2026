@@ -5,6 +5,10 @@ from http.client import HTTPConnection
 import io
 import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
+import struct
 from concurrent.futures import ThreadPoolExecutor
 import socket
 import time
@@ -13,6 +17,7 @@ from unittest.mock import patch
 from threading import Thread
 
 import app
+import http_transport
 
 
 LOCAL_TOKEN = "koth_local_player_12345"
@@ -35,6 +40,7 @@ class GameTests(unittest.TestCase):
             app.events.clear()
             app.next_cursor = 1
         app.publish_managed_context(None)
+        app.reporter_runtime.set_stopped()
 
     def test_board_and_dice_sequence_are_deterministic_and_original(self):
         first = app.turn_pairs(1_800_000)
@@ -90,7 +96,14 @@ class GameTests(unittest.TestCase):
         with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
             session = app.create_session(LOCAL_TOKEN, timestamp)
             duplicate = app.create_session(LOCAL_TOKEN, timestamp + 1)
-            self.assertEqual(duplicate, session)
+            self.assertEqual(duplicate["sessionId"], session["sessionId"])
+            self.assertEqual(duplicate["turns"], session["turns"])
+            self.assertEqual(session["serverTime"], timestamp)
+            self.assertEqual(duplicate["serverTime"], timestamp + 1)
+            self.assertLessEqual(
+                session["waveEndsAt"] - session["serverTime"],
+                app.WAVE_DURATION_MS,
+            )
 
         choices = [
             {"turn": turn["turn"], "choice": 0}
@@ -221,6 +234,7 @@ class GameTests(unittest.TestCase):
             starts_at=0,
             ends_at=2_000_000,
             cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
             scoring_floor=0,
             generated_at=app.now_ms(),
             eligible_hashes=frozenset({token_hash}),
@@ -256,6 +270,7 @@ class GameTests(unittest.TestCase):
             starts_at=0,
             ends_at=2_000_000,
             cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
             scoring_floor=0,
             generated_at=app.now_ms(),
             eligible_hashes=frozenset({token_hash}),
@@ -282,6 +297,7 @@ class GameTests(unittest.TestCase):
             starts_at=0,
             ends_at=1_800_001,
             cycle_ends_at=1_880_000,
+            scoring_ends_at=1_859_999,
             scoring_floor=0,
             generated_at=app.now_ms(),
             eligible_hashes=frozenset({token_hash}),
@@ -295,7 +311,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(cutoff.exception.status, 409)
 
         permitted = app.RoundContext(
-            **{**context.__dict__, "opaque": "c" * 64, "cycle_ends_at": 1_880_001}
+            **{**context.__dict__, "opaque": "c" * 64, "scoring_ends_at": 1_860_000}
         )
         with patch.dict(os.environ, MANAGED_ENV, clear=True):
             app.publish_managed_context(permitted)
@@ -312,6 +328,7 @@ class GameTests(unittest.TestCase):
             starts_at=1_830_000,
             ends_at=2_000_000,
             cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
             scoring_floor=1_860_000,
             generated_at=app.now_ms(),
             eligible_hashes=frozenset({token_hash}),
@@ -334,14 +351,14 @@ class GameTests(unittest.TestCase):
 
     def test_health_uses_reserved_capacity_during_slow_player_requests(self):
         clients = []
-        with patch.multiple(
-            app,
-            MAX_HTTP_WORKERS=12,
-            MAX_REGULAR_HTTP_WORKERS=8,
-            MAX_REQUESTS_PER_CLIENT=8,
-            ABSOLUTE_REQUEST_SECONDS=2,
-        ):
-            server = app.Server(("127.0.0.1", 0), app.Handler)
+
+        class TinyServer(app.Server):
+            max_workers = 12
+            max_regular_workers = 8
+            max_requests_per_client = 8
+            absolute_request_seconds = 2
+
+        server = TinyServer(("127.0.0.1", 0), app.Handler)
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -360,13 +377,19 @@ class GameTests(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual(len(server._admissions), 8)
 
-            connection = HTTPConnection(*server.server_address, timeout=1)
-            connection.request("GET", "/healthz", headers={"Connection": "close"})
-            response = connection.getresponse()
-            body = response.read()
-            connection.close()
-            self.assertEqual(response.status, 200)
-            self.assertEqual(json.loads(body)["status"], "ok")
+            health = socket.create_connection(server.server_address, timeout=1)
+            health.sendall(b"GET /healthz HTTP/1.1\r\nHost: arena")
+            time.sleep(0.05)
+            health.sendall(b"\r\nConnection: close\r\n\r\n")
+            response = bytearray()
+            while True:
+                chunk = health.recv(4_096)
+                if not chunk:
+                    break
+                response.extend(chunk)
+            health.close()
+            self.assertIn(b"HTTP/1.0 200 OK", response)
+            self.assertIn(b'"status":"ok"', response)
         finally:
             for client in clients:
                 client.close()
@@ -382,9 +405,17 @@ class GameTests(unittest.TestCase):
         server._regular_slots.acquire()
         with server._client_lock:
             server._client_requests[client] = 1
-            server._admissions[id(request)] = (client, True)
+            server._admissions[id(request)] = (
+                client,
+                True,
+                time.monotonic() + 1,
+            )
         try:
-            with patch.object(app.threading.Timer, "start", side_effect=RuntimeError):
+            with patch.object(
+                http_transport.threading.Timer,
+                "start",
+                side_effect=RuntimeError,
+            ):
                 with self.assertRaises(RuntimeError):
                     server.process_request_thread(request, (client, 12345))
             self.assertEqual(server._admissions, {})
@@ -395,6 +426,248 @@ class GameTests(unittest.TestCase):
             request.close()
             peer.close()
             server.server_close()
+
+    def test_aggregate_header_limit_closes_request_and_health_recovers(self):
+        class TinyServer(app.Server):
+            max_pending_requests = 16
+            request_queue_size = 16
+            absolute_request_seconds = 1
+
+        server = TinyServer(("127.0.0.1", 0), app.Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = socket.create_connection(server.server_address, timeout=1)
+        try:
+            client.sendall(
+                b"GET /api/rules HTTP/1.1\r\nHost: arena\r\nX-Fill: "
+                + b"a" * app.MAX_REQUEST_STREAM_BYTES
+                + b"\r\n\r\n"
+            )
+            client.settimeout(1)
+            self.assertEqual(client.recv(1), b"")
+
+            connection = HTTPConnection(*server.server_address, timeout=1)
+            connection.request("GET", "/healthz", headers={"Connection": "close"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            connection.close()
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_silent_pending_connections_cannot_hide_health(self):
+        class TinyServer(app.Server):
+            max_pending_requests = 8
+            request_queue_size = 32
+            absolute_request_seconds = 1
+            classifier_poll_seconds = 0.01
+
+        class SlowHandler(app.Handler):
+            def do_GET(self):  # noqa: N802 - HTTP handler contract
+                time.sleep(0.1)
+                super().do_GET()
+
+        server = TinyServer(("127.0.0.1", 0), SlowHandler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        clients = []
+        try:
+            for _index in range(12):
+                clients.append(socket.create_connection(server.server_address, timeout=1))
+            deadline = time.monotonic() + 1
+            while len(server._pending_requests) < 8 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(len(server._pending_requests), 8)
+
+            connection = HTTPConnection(*server.server_address, timeout=1)
+            connection.request("GET", "/healthz", headers={"Connection": "close"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            connection.close()
+        finally:
+            for client in clients:
+                client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_absolute_body_deadline_is_not_extended_by_trickle_bytes(self):
+        class TinyServer(app.Server):
+            max_workers = 4
+            max_regular_workers = 2
+            max_requests_per_client = 2
+            max_pending_requests = 8
+            request_queue_size = 8
+            read_timeout_seconds = 1
+            absolute_request_seconds = 0.25
+            classifier_poll_seconds = 0.01
+
+        server = TinyServer(("127.0.0.1", 0), app.Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = socket.create_connection(server.server_address, timeout=1)
+        started = time.monotonic()
+        try:
+            client.sendall(
+                b"POST /api/play HTTP/1.1\r\n"
+                b"Host: arena\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 100\r\n\r\n{"
+            )
+            while time.monotonic() - started < 0.55:
+                time.sleep(0.04)
+                try:
+                    client.sendall(b" ")
+                except OSError:
+                    break
+            client.settimeout(1)
+            self.assertEqual(client.recv(1), b"")
+            self.assertLess(time.monotonic() - started, 1)
+
+            connection = HTTPConnection(*server.server_address, timeout=1)
+            connection.request("GET", "/healthz", headers={"Connection": "close"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            connection.close()
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_abrupt_disconnect_releases_all_worker_capacity(self):
+        class TinyServer(app.Server):
+            max_workers = 4
+            max_regular_workers = 2
+            max_requests_per_client = 2
+            max_pending_requests = 8
+            request_queue_size = 8
+            absolute_request_seconds = 1
+            classifier_poll_seconds = 0.01
+
+        class SlowHandler(app.Handler):
+            def do_GET(self):  # noqa: N802 - HTTP handler contract
+                time.sleep(0.1)
+                super().do_GET()
+
+        server = TinyServer(("127.0.0.1", 0), SlowHandler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = socket.create_connection(server.server_address, timeout=1)
+        try:
+            client.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_LINGER,
+                struct.pack("ii", 1, 0),
+            )
+            client.sendall(
+                b"GET /api/rules HTTP/1.1\r\n"
+                b"Host: arena\r\nConnection: close\r\n\r\n"
+            )
+            deadline = time.monotonic() + 1
+            while not server._admissions and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(server._admissions)
+            client.close()
+            deadline = time.monotonic() + 1
+            while (
+                (server._admissions or server._client_requests)
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.01)
+            self.assertEqual(server._admissions, {})
+            self.assertEqual(server._client_requests, {})
+            self.assertEqual(server._request_slots._value, TinyServer.max_workers)
+            self.assertEqual(
+                server._regular_slots._value,
+                TinyServer.max_regular_workers,
+            )
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_play_samples_authoritative_time_only_after_taking_state_lock(self):
+        timestamp = 1_800_100
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            session = app.create_session(LOCAL_TOKEN, timestamp)
+        choices = [
+            {"turn": turn["turn"], "choice": 0}
+            for turn in session["turns"]
+        ]
+
+        def locked_now():
+            self.assertTrue(app.state_lock.locked())
+            return session["waveEndsAt"]
+
+        with patch.object(app, "now_ms", side_effect=locked_now):
+            with self.assertRaises(app.GameError) as expired:
+                app.play_session(session["sessionId"], choices)
+        self.assertEqual(expired.exception.status, 410)
+        self.assertEqual(app.read_evidence_page(0)["events"], [])
+
+    def test_capability_bursts_use_only_the_local_context_roster(self):
+        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
+        context = app.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=0,
+            ends_at=2_000_000,
+            cycle_ends_at=3_000_000,
+            scoring_ends_at=2_980_000,
+            scoring_floor=0,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with patch.dict(os.environ, MANAGED_ENV, clear=True):
+            app.publish_managed_context(context)
+            with ThreadPoolExecutor(max_workers=32) as executor:
+                admitted = list(
+                    executor.map(
+                        lambda _index: app.create_session(LOCAL_TOKEN, 1_800_100),
+                        range(32),
+                    )
+                )
+            with ThreadPoolExecutor(max_workers=32) as executor:
+                rejected = list(
+                    executor.map(
+                        lambda index: self._session_status(
+                            f"koth_unknown_{index:08d}",
+                            1_800_100,
+                        ),
+                        range(200),
+                    )
+                )
+        self.assertEqual(len({item["sessionId"] for item in admitted}), 1)
+        self.assertEqual(rejected, [403] * 200)
+        self.assertEqual(len(app.sessions), 1)
+
+    @staticmethod
+    def _session_status(token: str, timestamp_ms: int) -> int:
+        try:
+            app.create_session(token, timestamp_ms)
+        except app.GameError as error:
+            return error.status
+        return 201
+
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_browser_server_clock_contract(self):
+        subprocess.run(
+            ["node", "--test", str(Path(__file__).with_name("test_clock.mjs"))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ MAX_WAVES = 64
 MAX_PAGE_EVENTS = 1_000
 WAVE_DURATION_MS = 60_000
 WAVE_FINALIZATION_LAG_MS = 2_000
+LEGACY_SETTLEMENT_LAG_MS = 20_000
 CONTEXT_MAX_AGE_MS = 8_000
 CONTEXT_MAX_FUTURE_MS = 5_000
 USER_AGENT = "serpent-circuit-managed-reporter/1"
@@ -45,6 +46,63 @@ class ReporterHttpError(RuntimeError):
     def __init__(self, status: int, detail: str):
         super().__init__(f"HTTP {status}: {detail}")
         self.status = status
+
+
+class ReporterRuntime:
+    """Expose bounded reporter liveness without retaining error or secret text."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._state = "stopped"
+        self._failures = 0
+        self._thread: threading.Thread | None = None
+
+    def set_stopped(self, *, failed: bool = False) -> None:
+        with self._lock:
+            self._state = "stopped"
+            self._failures = 1 if failed else 0
+            self._thread = None
+
+    def set_disabled(self) -> None:
+        with self._lock:
+            self._state = "disabled"
+            self._failures = 0
+            self._thread = None
+
+    def attach(self, thread: threading.Thread) -> None:
+        with self._lock:
+            self._state = "starting"
+            self._failures = 0
+            self._thread = thread
+
+    def mark_ready(self) -> None:
+        with self._lock:
+            self._state = "ready"
+            self._failures = 0
+
+    def mark_waiting(self) -> None:
+        with self._lock:
+            self._state = "waiting"
+            self._failures = 0
+
+    def mark_retrying(self) -> None:
+        with self._lock:
+            self._state = "retrying"
+            self._failures = min(self._failures + 1, 2**31 - 1)
+
+    def snapshot(self) -> dict[str, object]:
+        with self._lock:
+            state = self._state
+            failures = self._failures
+            thread = self._thread
+        alive = thread.is_alive() if thread is not None else False
+        if thread is not None and thread.ident is not None and not alive:
+            state = "stopped"
+        return {
+            "alive": alive,
+            "consecutiveFailures": failures,
+            "state": state,
+        }
 
 
 @dataclass(frozen=True)
@@ -73,6 +131,7 @@ class RoundContext:
     starts_at: int
     ends_at: int
     cycle_ends_at: int
+    scoring_ends_at: int
     scoring_floor: int
     generated_at: int
     eligible_hashes: frozenset[str]
@@ -90,7 +149,11 @@ def _window_wave_starts(context: RoundContext, cutoff_ms: int) -> list[int]:
         else aligned_boundary
     )
     starts: list[int] = []
-    while end_ms < context.ends_at and end_ms <= cutoff_ms:
+    while (
+        end_ms < context.ends_at
+        and end_ms <= context.scoring_ends_at
+        and end_ms <= cutoff_ms
+    ):
         start_ms = end_ms - WAVE_DURATION_MS
         if start_ms >= context.scoring_floor:
             starts.append(start_ms)
@@ -257,6 +320,7 @@ class ManagedReporter:
         self.finalized_crowns: dict[int, str | None] = {}
         self.last_submitted_digest: str | None = None
         self.last_timestamp_ms = 0
+        self.deferred_wave_start: int | None = None
 
     def _get_json(self, url: str) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -265,6 +329,7 @@ class ManagedReporter:
                 "Accept": "application/json",
                 "Cache-Control": "no-store",
                 "User-Agent": USER_AGENT,
+                "X-RSCTF-API-Version": "v2",
             },
         )
         return _request_json(request, self.config.timeout_seconds)
@@ -286,10 +351,12 @@ class ManagedReporter:
             "generatedAt",
         }
         fields = set(value)
-        if (
-            fields != expected
-            and fields != expected | {"cycleStartsAt"}
-        ) or value.get("apiVersion") != "v1":
+        api_version = value.get("apiVersion")
+        v2_fields = expected | {"cycleStartsAt", "scoringEndsAt"}
+        if not (
+            (api_version == "v1" and fields == expected)
+            or (api_version == "v2" and fields == v2_fields)
+        ):
             raise RuntimeError("RSCTF returned an unexpected KotH arena context")
         opaque = value["context"]
         hashes = value["eligibleTokenHashes"]
@@ -321,6 +388,11 @@ class ManagedReporter:
         cycle_ends_at = _integer(
             value["cycleEndsAt"], ends_at, 2**63 - 1, "cycleEndsAt"
         )
+        scoring_ends_at = (
+            _integer(value["scoringEndsAt"], 0, cycle_ends_at, "scoringEndsAt")
+            if api_version == "v2"
+            else max(0, cycle_ends_at - LEGACY_SETTLEMENT_LAG_MS)
+        )
         generated_at = _integer(value["generatedAt"], 1, 2**63 - 1, "generatedAt")
         current_time_ms = time.time_ns() // 1_000_000
         if (
@@ -337,7 +409,7 @@ class ManagedReporter:
         if same_lifecycle:
             scoring_floor = self.context.scoring_floor
         else:
-            if "cycleStartsAt" in value:
+            if api_version == "v2":
                 floor_source = _integer(
                     value["cycleStartsAt"], 0, starts_at, "cycleStartsAt"
                 )
@@ -356,23 +428,42 @@ class ManagedReporter:
             starts_at=starts_at,
             ends_at=ends_at,
             cycle_ends_at=cycle_ends_at,
+            scoring_ends_at=scoring_ends_at,
             scoring_floor=scoring_floor,
             generated_at=generated_at,
             eligible_hashes=frozenset(hashes),
             objective_ids=tuple(objective_ids),
             objective_schema_hash=objective_schema_hash,
         )
-        wave_count = len(_window_wave_starts(context, context.ends_at))
-        if len(context.eligible_hashes) * wave_count > MAX_TEAMS:
-            raise RuntimeError(
-                "arena roster and settlement window exceed the 2,000 team-wave row bound"
-            )
+        _window_wave_starts(context, context.ends_at)
         return context
 
-    def _consume_feed(self, context: RoundContext) -> bool:
+    def _consume_feed(
+        self,
+        context: RoundContext,
+        current_time_ms: int | None = None,
+    ) -> bool:
+        """Stage a complete feed transaction, stopping before the first open wave."""
+        current_time_ms = (
+            time.time_ns() // 1_000_000
+            if current_time_ms is None
+            else current_time_ms
+        )
+        staged_cursor = self.cursor
+        staged_waves = {
+            start_ms: dict(rows)
+            for start_ms, rows in self.waves.items()
+        }
+        staged_rows = sum(len(rows) for rows in staged_waves.values())
         changed = False
+        current_wave: int | None = None
+        previous_wave: int | None = None
+        checkpoint_cursor = staged_cursor
+        checkpoint_changed = changed
+        checkpoint_rows = staged_rows
+        checkpoint_wave_rows: dict[str, TeamResult] | None = None
         while True:
-            value = self.read_evidence_page(self.cursor)
+            value = self.read_evidence_page(staged_cursor)
             if set(value) != {"events", "gap", "hasMore", "latestCursor", "nextCursor"}:
                 raise RuntimeError("arena returned an unexpected evidence page")
             if value["gap"] is not False:
@@ -380,31 +471,93 @@ class ManagedReporter:
             page = value["events"]
             if not isinstance(page, list) or len(page) > MAX_PAGE_EVENTS:
                 raise RuntimeError("arena returned an invalid evidence page")
-            previous = self.cursor
-            for event in page:
-                if not isinstance(event, dict):
+
+            previous = staged_cursor
+            for item in page:
+                if not isinstance(item, dict):
                     raise RuntimeError("arena returned a malformed evidence event")
-                event_cursor = _integer(event.get("cursor"), 1, 2**63 - 1, "event cursor")
+                event_cursor = _integer(
+                    item.get("cursor"), 1, 2**63 - 1, "event cursor"
+                )
                 if event_cursor != previous + 1:
                     raise RuntimeError("arena evidence cursor was not contiguous")
                 previous = event_cursor
-                self._consume_event(event, context)
-                changed = True
-            next_value = _integer(value["nextCursor"], self.cursor, 2**63 - 1, "nextCursor")
-            latest = _integer(value["latestCursor"], next_value, 2**63 - 1, "latestCursor")
+            next_value = _integer(
+                value["nextCursor"], staged_cursor, 2**63 - 1, "nextCursor"
+            )
+            latest = _integer(
+                value["latestCursor"], next_value, 2**63 - 1, "latestCursor"
+            )
             if page and next_value != previous:
                 raise RuntimeError("arena evidence page cursor is inconsistent")
-            if not page and next_value != self.cursor:
+            if not page and next_value != staged_cursor:
                 raise RuntimeError("empty arena evidence page advanced its cursor")
-            self.cursor = next_value
             if value["hasMore"] is False:
                 if next_value != latest:
                     raise RuntimeError("arena evidence page hid newer events")
-                return changed
-            if value["hasMore"] is not True or not page or next_value >= latest:
+            elif value["hasMore"] is not True or not page or next_value >= latest:
                 raise RuntimeError("arena evidence pagination did not make progress")
 
-    def _consume_event(self, event: object, context: RoundContext) -> None:
+            for item in page:
+                item_wave = _integer(
+                    item.get("waveStart"),
+                    0,
+                    2**63 - WAVE_DURATION_MS,
+                    "wave start",
+                )
+                if previous_wave is not None and item_wave < previous_wave:
+                    raise RuntimeError("arena evidence waves were not monotonic")
+                previous_wave = item_wave
+                if item_wave != current_wave:
+                    current_wave = item_wave
+                    checkpoint_cursor = staged_cursor
+                    checkpoint_changed = changed
+                    checkpoint_rows = staged_rows
+                    checkpoint_wave_rows = (
+                        dict(staged_waves[item_wave])
+                        if item_wave in staged_waves
+                        else None
+                    )
+                disposition = self._stage_event(
+                    item,
+                    context,
+                    staged_waves,
+                    current_time_ms,
+                    staged_rows,
+                )
+                if disposition in {"defer", "overflow"}:
+                    if disposition == "overflow":
+                        prior_wave_rows = len(checkpoint_wave_rows or {})
+                        if checkpoint_rows - prior_wave_rows == 0:
+                            raise RuntimeError(
+                                "one arena wave exceeded the 2,000 team row bound"
+                            )
+                    if checkpoint_wave_rows is None:
+                        staged_waves.pop(item_wave, None)
+                    else:
+                        staged_waves[item_wave] = checkpoint_wave_rows
+                    self.cursor = checkpoint_cursor
+                    self.waves = staged_waves
+                    self.deferred_wave_start = item_wave
+                    return checkpoint_changed
+                if disposition == "added":
+                    staged_rows += 1
+                staged_cursor = int(item["cursor"])
+                changed = True
+            if value["hasMore"] is False:
+                self.cursor = staged_cursor
+                self.waves = staged_waves
+                self.deferred_wave_start = None
+                return changed
+
+    def _stage_event(
+        self,
+        event: object,
+        context: RoundContext,
+        staged_waves: dict[int, dict[str, TeamResult]],
+        current_time_ms: int,
+        staged_rows: int,
+    ) -> str:
         if not isinstance(event, dict) or set(event) != {
             "cursor",
             "cycleNumber",
@@ -430,26 +583,33 @@ class ManagedReporter:
         reset_attempt = _integer(event["resetAttempt"], 0, 2**31 - 1, "reset attempt")
         if occurred_at >= wave + WAVE_DURATION_MS:
             raise RuntimeError("arena event fell outside its wave")
-        if (
-            cycle_number != context.cycle_number
-            or reset_attempt != context.reset_attempt
-        ):
-            return
-        if token_hash not in context.eligible_hashes:
-            return
         wave_end = wave + WAVE_DURATION_MS
-        if wave_end < context.starts_at or (
-            context.round_number <= 1 and wave_end == context.starts_at
-        ):
-            return
+        event_lifecycle = (cycle_number, reset_attempt)
+        context_lifecycle = (context.cycle_number, context.reset_attempt)
+        if event_lifecycle < context_lifecycle:
+            return "consume"
+        if event_lifecycle > context_lifecycle:
+            return "defer"
+        if wave < context.scoring_floor or wave_end > context.scoring_ends_at:
+            raise RuntimeError("arena emitted evidence outside the authoritative scoring cycle")
+        cutoff = current_time_ms - WAVE_FINALIZATION_LAG_MS
+        if wave_end >= context.ends_at or wave_end > cutoff:
+            return "defer"
+        if wave not in _window_wave_starts(context, cutoff):
+            if wave_end <= context.starts_at:
+                return "consume"
+            raise RuntimeError("arena emitted evidence outside the authoritative scoring window")
+        if token_hash not in context.eligible_hashes:
+            return "consume"
         if wave in self.finalized_crowns:
             raise RuntimeError("arena appended evidence to an already finalized wave")
-        rows = self.waves.setdefault(wave, {})
+        rows = staged_waves.setdefault(wave, {})
         if token_hash in rows:
             raise RuntimeError("arena reported more than one team result in a wave")
-        if len(rows) >= MAX_TEAMS:
-            raise RuntimeError("one arena wave exceeded the 2,000 team row bound")
+        if staged_rows >= MAX_TEAMS:
+            return "overflow"
         rows[token_hash] = TeamResult(earned=earned, possible=possible)
+        return "added"
 
     @staticmethod
     def _performance(result: TeamResult) -> Fraction:
@@ -485,6 +645,12 @@ class ManagedReporter:
     def _body(self, context: RoundContext, current_time_ms: int) -> bytes:
         cutoff = current_time_ms - WAVE_FINALIZATION_LAG_MS
         finalized_starts = _window_wave_starts(context, cutoff)
+        if self.deferred_wave_start is not None:
+            finalized_starts = [
+                start_ms
+                for start_ms in finalized_starts
+                if start_ms < self.deferred_wave_start
+            ]
         for start_ms in finalized_starts:
             if start_ms not in self.finalized_crowns:
                 self._finalize_wave(start_ms)
@@ -605,6 +771,7 @@ class ManagedReporter:
             {start: dict(rows) for start, rows in self.waves.items()},
             dict(self.finalized_crowns),
             self.last_submitted_digest,
+            self.deferred_wave_start,
         )
         try:
             context = self.fetch_context()
@@ -633,8 +800,9 @@ class ManagedReporter:
             else:
                 self.context = context
             self._prune_ineligible(context)
-            feed_changed = self._consume_feed(context)
-            body = self._body(context, time.time_ns() // 1_000_000)
+            poll_time_ms = time.time_ns() // 1_000_000
+            feed_changed = self._consume_feed(context, poll_time_ms)
+            body = self._body(context, poll_time_ms)
             digest = hashlib.sha256(body).hexdigest()
             if digest == self.last_submitted_digest and not feed_changed:
                 self.publish_context(context)
@@ -659,6 +827,7 @@ class ManagedReporter:
                 self.waves,
                 self.finalized_crowns,
                 self.last_submitted_digest,
+                self.deferred_wave_start,
             ) = saved
             raise
 
@@ -670,14 +839,18 @@ def _retry_delay(failures: int, poll_seconds: float) -> float:
 def start_managed_reporter(
     read_evidence_page: Callable[[int], dict[str, Any]],
     publish_context: Callable[[RoundContext | None], None] | None = None,
+    runtime: ReporterRuntime | None = None,
 ) -> threading.Thread | None:
     """Start only when rsctf injected the complete managed-target contract."""
+    runtime = runtime or ReporterRuntime()
     try:
         config = load_config()
     except ValueError as error:
+        runtime.set_stopped(failed=True)
         print(f"managed reporter configuration error: {error}", flush=True)
         return None
     if config is None:
+        runtime.set_disabled()
         print("managed reporter disabled: rsctf environment is absent", flush=True)
         return None
 
@@ -685,26 +858,41 @@ def start_managed_reporter(
 
     def run() -> None:
         failures = 0
-        while True:
-            try:
-                client.poll_once()
-                failures = 0
-                time.sleep(config.poll_seconds)
-            except ReporterHttpError as error:
-                client.publish_context(None)
-                if error.status == 409:
+        try:
+            while True:
+                try:
+                    client.poll_once()
                     failures = 0
+                    runtime.mark_ready()
                     time.sleep(config.poll_seconds)
-                    continue
-                failures += 1
-                print(f"managed reporter error: {error}", flush=True)
-                time.sleep(_retry_delay(failures, config.poll_seconds))
-            except (urllib.error.URLError, OSError, RuntimeError) as error:
+                except ReporterHttpError as error:
+                    client.publish_context(None)
+                    if error.status == 409:
+                        failures = 0
+                        runtime.mark_waiting()
+                        time.sleep(config.poll_seconds)
+                        continue
+                    failures += 1
+                    runtime.mark_retrying()
+                    print(f"managed reporter error: {error}", flush=True)
+                    time.sleep(_retry_delay(failures, config.poll_seconds))
+                except (urllib.error.URLError, OSError, RuntimeError) as error:
+                    client.publish_context(None)
+                    failures += 1
+                    runtime.mark_retrying()
+                    print(f"managed reporter error: {error}", flush=True)
+                    time.sleep(_retry_delay(failures, config.poll_seconds))
+        finally:
+            try:
                 client.publish_context(None)
-                failures += 1
-                print(f"managed reporter error: {error}", flush=True)
-                time.sleep(_retry_delay(failures, config.poll_seconds))
+            finally:
+                runtime.set_stopped(failed=True)
 
     thread = threading.Thread(target=run, name="serpent-circuit-reporter", daemon=True)
-    thread.start()
+    runtime.attach(thread)
+    try:
+        thread.start()
+    except RuntimeError:
+        runtime.set_stopped(failed=True)
+        raise
     return thread

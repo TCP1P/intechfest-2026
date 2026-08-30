@@ -1,3 +1,5 @@
+import { makeServerClock, serverNow } from "./clock.mjs";
+
 (() => {
   "use strict";
 
@@ -47,6 +49,7 @@
     countdownTimer: null,
     expired: false,
     rules: null,
+    serverClock: null,
     session: null,
     submitting: false,
   };
@@ -211,15 +214,8 @@
   }
 
   function normalizeWaveEnd(value) {
-    if (Number.isFinite(value)) {
-      const numeric = Number(value);
-      return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    }
-    if (typeof value === "string" && value.length <= 80) {
-      const parsed = Date.parse(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
+    if (Number.isSafeInteger(value) && value >= 0) {
+      return value;
     }
     throw new Error("The server returned an invalid wave deadline.");
   }
@@ -247,10 +243,25 @@
     if (turns.some((turn, index) => turn.turn !== index + 1)) {
       throw new Error("The server returned turns outside the required order.");
     }
+    const serverTime = assertInteger(
+      raw.serverTime,
+      "server time",
+      0,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const waveEndsAt = normalizeWaveEnd(raw.waveEndsAt);
+    if (
+      !state.rules
+      || waveEndsAt <= serverTime
+      || waveEndsAt - serverTime > state.rules.waveSeconds * 1000
+    ) {
+      throw new Error("The server returned an impossible wave deadline.");
+    }
     return {
+      serverTime,
       sessionId: boundedString(raw.sessionId, "session ID", 256),
       turns,
-      waveEndsAt: normalizeWaveEnd(raw.waveEndsAt),
+      waveEndsAt,
       waveId: boundedIdentifier(raw.waveId, "wave ID"),
     };
   }
@@ -513,7 +524,10 @@
       return;
     }
 
-    const milliseconds = state.session.waveEndsAt - Date.now();
+    const milliseconds = state.session.waveEndsAt - serverNow(
+      state.serverClock,
+      performance.now(),
+    );
     if (milliseconds <= 0) {
       elements.waveCountdown.textContent = "closed";
       stopCountdown();
@@ -654,14 +668,21 @@
     setStatus("Authenticating capability and requesting this wave's route…");
 
     try {
+      const requestStarted = performance.now();
       const raw = await requestJson("/api/session", {
         body: JSON.stringify({ token }),
         method: "POST",
       });
+      const responseReceived = performance.now();
       const session = normalizeSession(raw);
       if (session.turns.length !== state.rules.turnCount) {
         throw new Error("The session does not match the advertised turn count.");
       }
+      state.serverClock = makeServerClock(
+        session.serverTime,
+        requestStarted,
+        responseReceived,
+      );
       state.session = session;
       elements.token.value = "";
       renderSession(session);

@@ -18,10 +18,13 @@ HEALTH_KEYS = {
     "status",
     "mode",
     "protocol",
+    "reporter",
     "scoringReady",
     "waveSeconds",
     "turnCount",
 }
+REPORTER_KEYS = {"alive", "consecutiveFailures", "state"}
+REPORTER_STATES = {"starting", "waiting", "ready", "retrying"}
 RULE_KEYS = {
     "name",
     "protocolVersion",
@@ -167,6 +170,18 @@ def _validate_health(document: dict[str, Any]) -> None:
         raise Mumble("the health response reported the wrong protocol")
     if document["waveSeconds"] != 60 or document["turnCount"] != 12:
         raise Mumble("the health response reported the wrong match timing")
+    reporter = document["reporter"]
+    if not isinstance(reporter, dict) or set(reporter) != REPORTER_KEYS:
+        raise Mumble("the health response reported invalid reporter diagnostics")
+    failures = reporter["consecutiveFailures"]
+    if (
+        reporter["alive"] is not True
+        or reporter["state"] not in REPORTER_STATES
+        or not _is_integer(failures)
+        or not 0 <= failures <= 2
+        or (reporter["state"] == "retrying") != (failures > 0)
+    ):
+        raise Mumble("the managed reporter liveness was inconsistent")
 
 
 def _validate_transition(transition: object, origins: set[int]) -> None:

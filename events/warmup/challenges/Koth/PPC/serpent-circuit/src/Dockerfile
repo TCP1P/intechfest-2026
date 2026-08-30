@@ -2,7 +2,7 @@ FROM python:3.12-alpine@sha256:d09d15e60962ca365d1cd544a48773bac9d33f2fb1b00f2aa
 
 ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /test
-COPY app.py reporter.py test_game.py test_reporter.py /test/
+COPY app.py http_transport.py reporter.py test_game.py test_reporter.py /test/
 COPY static/ /test/static/
 RUN python -m unittest -v test_game.py test_reporter.py
 
@@ -12,6 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY --from=tests --chown=nobody:nogroup /test/app.py /app/app.py
+COPY --from=tests --chown=nobody:nogroup /test/http_transport.py /app/http_transport.py
 COPY --from=tests --chown=nobody:nogroup /test/reporter.py /app/reporter.py
 COPY --from=tests --chown=nobody:nogroup /test/static/ /app/static/
 

@@ -12,16 +12,18 @@ import os
 from pathlib import Path
 import re
 import secrets
-import socket
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from typing import Any
 import urllib.parse
 
+from http_transport import BoundedReader as _BoundedReader
+from http_transport import BoundedThreadingHTTPServer
 from reporter import load_config as load_reporter_config
 from reporter import CONTEXT_MAX_AGE_MS
 from reporter import CONTEXT_MAX_FUTURE_MS
+from reporter import ReporterRuntime
 from reporter import RoundContext
 from reporter import start_managed_reporter
 
@@ -47,10 +49,10 @@ MAX_SESSIONS = MAX_ACTIVE_TEAM_WAVE_ADMISSIONS * 2
 MAX_HTTP_WORKERS = 64
 MAX_REGULAR_HTTP_WORKERS = 56
 MAX_REQUESTS_PER_CLIENT = MAX_REGULAR_HTTP_WORKERS
+MAX_PENDING_HTTP_REQUESTS = 128
 CONNECTION_TIMEOUT_SECONDS = 4
 ABSOLUTE_REQUEST_SECONDS = 6
 MAX_CONTEXT_STALENESS_SECONDS = 8
-RSCTF_SETTLEMENT_LAG_MS = 20_000
 TOKEN_PATTERN = re.compile(r"^koth_[A-Za-z0-9_-]{8,128}$")
 CANONICAL_HASH = re.compile(r"^[0-9a-f]{64}$")
 STATIC_ROOT = Path(__file__).with_name("static")
@@ -124,6 +126,7 @@ events: deque[dict[str, object]] = deque(maxlen=MAX_EVENTS)
 next_cursor = 1
 managed_context_lock = threading.Lock()
 managed_context: ManagedContext | None = None
+reporter_runtime = ReporterRuntime()
 
 
 def now_ms() -> int:
@@ -309,9 +312,7 @@ def publish_managed_context(context: RoundContext | None) -> None:
                     opaque=context.opaque,
                     eligible_hashes=context.eligible_hashes,
                     cycle_ends_at=context.cycle_ends_at,
-                    final_scoring_cutoff=(
-                        context.cycle_ends_at - RSCTF_SETTLEMENT_LAG_MS
-                    ),
+                    final_scoring_cutoff=context.scoring_ends_at,
                     cycle_number=context.cycle_number,
                     reset_attempt=context.reset_attempt,
                     first_scorable_wave_start=context.scoring_floor,
@@ -356,8 +357,13 @@ def authenticate_capability(token: str) -> tuple[str, ManagedContext | None] | N
     return token_hash, context
 
 
-def _session_document(session_id: str, session: Session) -> dict[str, object]:
+def _session_document(
+    session_id: str,
+    session: Session,
+    server_time_ms: int,
+) -> dict[str, object]:
     return {
+        "serverTime": server_time_ms,
         "sessionId": session_id,
         "turns": [
             {"options": list(options), "turn": index}
@@ -421,7 +427,7 @@ def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, obj
             raise GameError(409, "wait for the first complete scoring wave")
         if (
             admitted_context is not None
-            and end_ms >= admitted_context.final_scoring_cutoff
+            and end_ms > admitted_context.final_scoring_cutoff
         ):
             raise GameError(409, "the event ends before another complete scoring wave")
         pairs = turn_pairs(start_ms)
@@ -437,7 +443,7 @@ def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, obj
             session = sessions.get(session_id)
             if session is None:
                 raise GameError(503, "the prior session is temporarily unavailable")
-            return _session_document(session_id, session)
+            return _session_document(session_id, session, timestamp_ms)
         admission_key = (
             start_ms,
             admitted_context.cycle_number if admitted_context else 0,
@@ -472,7 +478,7 @@ def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, obj
         )
         started_runs[run_key] = session_id
         wave_admissions[admission_key] = wave_rows + 1
-        response = _session_document(session_id, sessions[session_id])
+        response = _session_document(session_id, sessions[session_id], timestamp_ms)
 
     return response
 
@@ -594,40 +600,16 @@ def read_evidence_page(after: int) -> dict[str, object]:
     }
 
 
-class _BoundedReader:
-    """Cap request-line, header, and body buffering for one connection."""
-
-    def __init__(self, raw, limit: int):
-        self.raw = raw
-        self.remaining = limit
-
-    def _size(self, requested: int) -> int:
-        available = self.remaining + 1
-        return available if requested < 0 else min(requested, available)
-
-    def _account(self, data: bytes) -> bytes:
-        self.remaining -= len(data)
-        if self.remaining < 0:
-            raise OSError("request stream limit exceeded")
-        return data
-
-    def read(self, size: int = -1) -> bytes:
-        return self._account(self.raw.read(self._size(size)))
-
-    def readline(self, size: int = -1) -> bytes:
-        return self._account(self.raw.readline(self._size(size)))
-
-    def __getattr__(self, name: str):
-        return getattr(self.raw, name)
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "serpent-circuit"
     sys_version = ""
 
     def setup(self) -> None:
         super().setup()
-        self.rfile = _BoundedReader(self.rfile, MAX_REQUEST_STREAM_BYTES)
+        self.rfile = _BoundedReader(
+            self.rfile,
+            self.server.request_stream_bytes,
+        )
 
     def handle(self) -> None:
         try:
@@ -641,6 +623,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
             self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -648,6 +631,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
+            self.close_connection = True
         except OSError:
             self.close_connection = True
 
@@ -706,6 +690,7 @@ class Handler(BaseHTTPRequestHandler):
                     "mode": runtime_mode(),
                     "name": NAME,
                     "protocol": PROTOCOL,
+                    "reporter": reporter_runtime.snapshot(),
                     "scoringReady": scoring_ready(),
                     "status": "ok",
                     "turnCount": TURN_COUNT,
@@ -724,6 +709,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if request.path == "/assets/app.js":
             self._static("app.js", "text/javascript; charset=utf-8")
+            return
+        if request.path == "/assets/clock.mjs":
+            self._static("clock.mjs", "text/javascript; charset=utf-8")
             return
         self._json(404, {"error": "not found"})
 
@@ -768,103 +756,23 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-class Server(ThreadingHTTPServer):
-    daemon_threads = True
-    request_queue_size = 64
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._request_slots = threading.BoundedSemaphore(MAX_HTTP_WORKERS)
-        self._regular_slots = threading.BoundedSemaphore(MAX_REGULAR_HTTP_WORKERS)
-        self._client_lock = threading.Lock()
-        self._client_requests: dict[str, int] = {}
-        self._admissions: dict[int, tuple[str, bool]] = {}
-
-    def get_request(self):
-        request, client_address = super().get_request()
-        request.settimeout(CONNECTION_TIMEOUT_SECONDS)
-        return request, client_address
-
-    def process_request(self, request, client_address):
-        client = str(client_address[0])
-        is_probe = self._looks_like_health_probe(request)
-        if not is_probe:
-            with self._client_lock:
-                active = self._client_requests.get(client, 0)
-                if active >= MAX_REQUESTS_PER_CLIENT:
-                    self.shutdown_request(request)
-                    return
-                self._client_requests[client] = active + 1
-        regular_acquired = is_probe or self._regular_slots.acquire(blocking=False)
-        total_acquired = regular_acquired and self._request_slots.acquire(blocking=False)
-        if not total_acquired:
-            if regular_acquired and not is_probe:
-                self._regular_slots.release()
-            if not is_probe:
-                self._release_client(client)
-            self.shutdown_request(request)
-            return
-        with self._client_lock:
-            self._admissions[id(request)] = (client, not is_probe)
-        try:
-            super().process_request(request, client_address)
-        except BaseException:
-            self._release_admission(request)
-            raise
-
-    def process_request_thread(self, request, client_address):
-        deadline = threading.Timer(
-            ABSOLUTE_REQUEST_SECONDS,
-            self._close_expired_request,
-            args=(request,),
-        )
-        deadline.daemon = True
-        deadline_started = False
-        try:
-            deadline.start()
-            deadline_started = True
-            super().process_request_thread(request, client_address)
-        finally:
-            if deadline_started:
-                deadline.cancel()
-            self._release_admission(request)
-
-    @staticmethod
-    def _looks_like_health_probe(request: socket.socket) -> bool:
-        try:
-            peeked = request.recv(512, socket.MSG_PEEK | socket.MSG_DONTWAIT)
-        except (BlockingIOError, OSError):
-            return False
-        if b"\r\n\r\n" not in peeked:
-            return False
-        first = peeked.split(b"\r\n", 1)[0]
-        return first in {b"GET /healthz HTTP/1.0", b"GET /healthz HTTP/1.1", b"HEAD /healthz HTTP/1.0", b"HEAD /healthz HTTP/1.1"}
-
-    @staticmethod
-    def _close_expired_request(request: socket.socket) -> None:
-        try:
-            request.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-
-    def _release_client(self, client: str) -> None:
-        with self._client_lock:
-            remaining = self._client_requests.get(client, 1) - 1
-            if remaining <= 0:
-                self._client_requests.pop(client, None)
-            else:
-                self._client_requests[client] = remaining
-
-    def _release_admission(self, request: socket.socket) -> None:
-        with self._client_lock:
-            admission = self._admissions.pop(id(request), None)
-        if admission is None:
-            return
-        client, used_regular_slot = admission
-        if used_regular_slot:
-            self._release_client(client)
-            self._regular_slots.release()
-        self._request_slots.release()
+class Server(BoundedThreadingHTTPServer):
+    max_workers = MAX_HTTP_WORKERS
+    max_regular_workers = MAX_REGULAR_HTTP_WORKERS
+    max_requests_per_client = MAX_REQUESTS_PER_CLIENT
+    max_pending_requests = MAX_PENDING_HTTP_REQUESTS
+    request_queue_size = MAX_PENDING_HTTP_REQUESTS
+    request_stream_bytes = MAX_REQUEST_STREAM_BYTES
+    read_timeout_seconds = CONNECTION_TIMEOUT_SECONDS
+    absolute_request_seconds = ABSOLUTE_REQUEST_SECONDS
+    protected_request_lines = frozenset(
+        {
+            b"GET /healthz HTTP/1.0",
+            b"GET /healthz HTTP/1.1",
+            b"HEAD /healthz HTTP/1.0",
+            b"HEAD /healthz HTTP/1.1",
+        }
+    )
 
 
 def main() -> None:
@@ -874,7 +782,11 @@ def main() -> None:
         raise SystemExit("PORT must be an integer") from error
     if not 1 <= port <= 65535:
         raise SystemExit("PORT must be in 1..65535")
-    start_managed_reporter(read_evidence_page, publish_managed_context)
+    start_managed_reporter(
+        read_evidence_page,
+        publish_managed_context,
+        reporter_runtime,
+    )
     Server(("0.0.0.0", port), Handler).serve_forever()
 
 

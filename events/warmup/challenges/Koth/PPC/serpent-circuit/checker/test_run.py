@@ -21,6 +21,11 @@ VALID_HEALTH = {
     "status": "ok",
     "mode": "managed",
     "protocol": "serpent-circuit/1",
+    "reporter": {
+        "alive": True,
+        "consecutiveFailures": 0,
+        "state": "ready",
+    },
     "scoringReady": True,
     "waveSeconds": 60,
     "turnCount": 12,
@@ -161,12 +166,39 @@ class SerpentCheckerTests(unittest.TestCase):
 
     def test_preactivation_lifecycle_is_ready_for_activation(self) -> None:
         preactivation = dict(VALID_HEALTH)
+        preactivation["reporter"] = {
+            "alive": True,
+            "consecutiveFailures": 0,
+            "state": "waiting",
+        }
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
         FakeConnection.routes["/api/session"] = FakeResponse(
             {"error": "the scoring roster is not ready"}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 0)
+
+    def test_stopped_or_inconsistent_reporter_returns_mumble(self) -> None:
+        for diagnostics in (
+            {"alive": False, "consecutiveFailures": 0, "state": "stopped"},
+            {"alive": True, "consecutiveFailures": 0, "state": "retrying"},
+            {"alive": True, "consecutiveFailures": 1, "state": "ready"},
+            {"alive": True, "consecutiveFailures": 3, "state": "retrying"},
+        ):
+            with self.subTest(diagnostics=diagnostics):
+                invalid = dict(VALID_HEALTH)
+                invalid["reporter"] = diagnostics
+                with self.assertRaises(Mumble):
+                    run._validate_health(invalid)
+
+    def test_retrying_reporter_is_visible_without_failing_http_health(self) -> None:
+        retrying = dict(VALID_HEALTH)
+        retrying["reporter"] = {
+            "alive": True,
+            "consecutiveFailures": 2,
+            "state": "retrying",
+        }
+        run._validate_health(retrying)
 
     def test_non_boolean_scoring_readiness_returns_mumble(self) -> None:
         invalid = dict(VALID_HEALTH)
