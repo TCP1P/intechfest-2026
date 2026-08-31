@@ -66,8 +66,10 @@ directory merely to avoid deciding ownership.
 - Copy the closest supported example and remove inapplicable keys.
 - Keep name unique within the event and category consistent with the path.
 - Omit default Jeopardy scoring keys unless the request explicitly changes policy.
-- Keep `ad.allowEgress: true` for managed A&D/KotH unless deliberate isolation is part of
-  the reviewed challenge contract.
+- Set `ad.allowEgress: true` for managed A&D/KotH so the target can reach the Internet.
+  Use `false` only for deliberate reviewed isolation. Verify the selected backend supports
+  the policy; rsctf's Docker backend currently rejects competitive `true` workloads. BYOC
+  host egress is not controlled by this field.
 - Never add guessed keys. `rsctf challenge check` rejects unknown fields.
 - Keep live secrets out even if the remote is currently private.
 
@@ -131,7 +133,7 @@ directory merely to avoid deciding ownership.
 3. State the player contract and component set.
 4. Make the smallest cohesive package change.
 5. Check audience boundaries and inspect archive/Docker copy paths.
-6. Run component-specific tests, then `make validate` and `make matrix` with the matching
+6. Run component-specific tests, then `make check RSCTF=/path/to/rsctf` with the matching
    official rsctf binary.
 7. Update the organizer solution verification record when behavior changed.
 8. Require a fresh isolated playtest and hidden staging evidence for readiness claims.

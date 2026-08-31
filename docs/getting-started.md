@@ -1,9 +1,10 @@
 # Getting started
 
 This repository is the private rsctf Repository Bindings source for two independent
-INTECHFEST 2026 events. The warmup is intentionally empty. The main event currently has two
-shared Leaderboard KotH challenges. Start from a real contract, not a placeholder copied only
-to make a directory look populated.
+INTECHFEST 2026 events. The warmup has one BYOC A&D challenge, one marker KotH challenge,
+and one managed Leaderboard KotH scoring game. The main event has two shared Leaderboard
+KotH challenges. Start from a real contract, not a placeholder copied only to make a
+directory look populated.
 
 For AI-assisted work, ask normally or invoke the matching integrated skill explicitly:
 
@@ -43,10 +44,13 @@ The current packages are examples of this repository's actual delivery model:
 
 | Package | Contract | Reuse it when |
 | --- | --- | --- |
+| `events/warmup/challenges/AD/Web/parcel-panic/` | self-hosted/BYOC A&D service, rotating flag file, read-only checker | teams must run and patch the issued image on their own host |
+| `events/warmup/challenges/Koth/Web/draft-control/` | shared marker/Boot2Root hill with an atomic `/koth/king` control path | control is exclusive and proven by placing the current KotH capability in the marker |
+| `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared browser/API game, read-only checker, in-process managed reporter | every team can produce bounded native evidence during the same Leaderboard wave |
 | `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |
 | `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, optional transport gateway | a managed target reports evidence but needs HTTPS/UDP adaptation |
 
-These are not generic Jeopardy or A&D templates. For a new mode, use the
+These are mode-specific examples, not interchangeable templates. For a new mode, use the
 [authoring contract](authoring-contract.md) and [manifest reference](configuration.md), then
 implement only the components that mode requires.
 
@@ -103,13 +107,12 @@ the material from the public, but every repository reader can still see it.
 Run focused language tests first, then:
 
 ```sh
-make validate
-make matrix
-make checkers
-make solutions
+make check RSCTF=/path/to/rsctf
 ```
 
-`make validate` invokes the official `rsctf challenge check --deny-warnings .` command.
+Use `make check` without the assignment when the matching official binary is already on
+`PATH`. The validation step invokes the official
+`rsctf challenge check --deny-warnings .` command.
 `make matrix` invokes `rsctf challenge matrix .`; it discovers direct
 `events/<event>/challenges/<mode>/<category>/<slug>/src/Dockerfile` and
 `generator/Dockerfile` contexts dynamically. Do not add a hand-written container matrix or a
@@ -123,8 +126,11 @@ it does not prove checker verdicts, player protocol behavior, scoring, or solvab
 ## Import safely
 
 Repository Bindings discovers both sibling `.gzevent` files and imports two independent
-games. A rescan preserves each game row but recreates challenges owned by that event root, so
-challenge IDs and challenge-level Admin edits may change.
+games. Event settings seed a game only on first import. On later scans, a challenge at the
+same manifest path is updated in place, preserving its ID, history, review state, enabled
+state, and protected runtime state. A missing manifest is guarded and disabled as a
+tombstone rather than deleted; a path rename creates a new challenge identity and leaves the
+old path to that removal flow. Rehearse renames and removals in hidden staging.
 
 Keep both games hidden and all challenges disabled through the first scan. Confirm exactly
 two events and the expected per-event challenge counts, reproduce the organizer solution,

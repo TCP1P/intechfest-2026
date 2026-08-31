@@ -8,14 +8,14 @@ Before the first hidden import, run rsctf's offline preflight and inspect the dy
 container matrix:
 
 ```sh
-make validate
-make matrix
+make check RSCTF=/path/to/rsctf
 ```
 
-The CLI catches importer-schema and static package errors without a database. It does
-not execute builds, install checker wheels, verify backend networking, or prove a
-challenge is solvable, so it cannot replace the hidden staging scan and player smoke
-test below.
+Use `make check` without the assignment when the matching official binary is already on
+`PATH`. Its CLI stages catch importer-schema and static package errors without a database.
+They do not execute builds, install checker wheels, verify backend networking, or prove a
+challenge is solvable, so they cannot replace the hidden staging scan and player smoke test
+below.
 
 Also inspect the committed tree, not only the working directory. Each package intentionally
 tracks `solution/README.md` and `solution/solve.py`. Repository readers can see them, but they
@@ -40,7 +40,7 @@ discovery script participates in either decision.
    repository, use a fine-grained token with read-only contents access unless the
    workflow explicitly requires push-back.
 4. Run **Scan now** and inspect the complete result. This repository should report two
-   events: an empty warmup and a main event with two challenge manifests.
+   events: a warmup with three challenge manifests and a main event with two.
 5. Open both imported games. Confirm each is hidden and every imported challenge remains
    disabled.
 6. Review every discovered service-image build, each deterministic generator
@@ -75,17 +75,19 @@ Before enabling a locally built service, inspect its build log and immutable ima
 identity, then test its port, resource limits, writable paths, flag delivery, and
 restart behavior through the actual backend.
 
-## Rescans are destructive to challenge rows
+## Rescans reconcile by manifest path
 
-A rescan preserves each game row and operator-edited game settings, but clears and recreates
-the challenges owned by that event's `.gzevent`. Challenge IDs and challenge-level Admin
-edits can change. Git is the source of truth for challenge configuration.
+Event settings from `.gzevent` seed the game only on first import, so later operator edits
+such as the real schedule persist. Within a binding, the manifest path is the durable
+challenge identity. A later scan updates a same-path challenge in place while preserving its
+ID, solve and engine history, review state, enabled state, and protected runtime state.
 
-Never casually rescan a running event. Rehearse the exact rescan on staging, account
-for any IDs used by external automation, and confirm that all rebuilt services,
-checkers, variants, managed reporters, and gateway reconciliation still refer to the new
-imported challenge records.
+A manifest that disappears is guarded and disabled as a tombstone rather than deleted.
+Removal of a live or evidenced challenge can be rejected until an operator explicitly
+disables it. Renaming a path therefore creates a new challenge identity and sends the old
+path through that guarded removal flow; changing challenge type at one path is rejected.
 
-Event settings from `.gzevent` seed the game on its first import. Later scans preserve
-operator changes such as the real schedule, which is why Git and Admin state must both
-be reviewed before a live rescan.
+Rehearse removals, renames, rebuilt services, checkers, variants, managed reporters, and
+gateway reconciliation in hidden staging before scanning a running event. Git remains the
+source of authored challenge configuration, while preserved Admin and runtime state must
+also be reviewed.

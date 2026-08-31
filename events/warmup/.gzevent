@@ -4,10 +4,22 @@ hidden: true
 summary: "Warmup challenges for INTECHFEST 2026."
 content: |
   This event is imported from the warmup tree in the private INTECHFEST 2026
-  challenge repository. Keep it hidden until its schedule, player delivery,
-  and challenge set have passed release review.
+  challenge repository. It contains a self-hosted Attack & Defense service,
+  a marker King of the Hill, and a managed Leaderboard scoring game. Keep it
+  hidden until its schedule, player delivery, engine setup, and challenge set
+  have passed release review.
 
 acceptWithoutReview: false
 practiceMode: true
 writeupRequired: false
 writeupNote: "No writeup is required for the warmup event."
+
+ad:
+  # Leaderboard evidence has a 20-second settlement lag. Contiguous 60-second
+  # settlement windows each own one completed UTC-minute Serpent wave; the
+  # initial partial wave is deliberately left unscored.
+  tickSeconds: 60
+  flagLifetimeTicks: 5
+  warmupSeconds: 120
+  resetCooldownMinutes: 5
+  allowSnapshotDownload: false

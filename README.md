@@ -8,11 +8,14 @@ must not be treated as permission to make either event public or enable a challe
 
 | Event | Root | Current challenges |
 | --- | --- | ---: |
-| Warmup | `events/warmup/` | 0 |
+| Warmup | `events/warmup/` | 3 |
 | Main event | `events/main-event/` | 2 |
 
-The source contains no warmup challenge yet. Add one only when its player contract and
-challenge package are real; do not duplicate a main-event challenge as a placeholder.
+The warmup currently contains:
+
+- `Parcel Panic` — self-hosted/BYOC Attack & Defense in `Web`.
+- `Draft Control` — shared marker/Boot2Root King of the Hill in `Web`.
+- `Serpent Circuit` — shared managed-reporting Leaderboard King of the Hill in `PPC`.
 
 The main event currently contains:
 
@@ -29,7 +32,8 @@ The main event currently contains:
 ├── docs/                            # human documentation and release contracts
 ├── events/
 │   ├── warmup/
-│   │   └── .gzevent
+│   │   ├── .gzevent
+│   │   └── challenges/<mode>/<category>/<slug>/
 │   └── main-event/
 │       ├── .gzevent
 │       └── challenges/<mode>/<category>/<slug>/
@@ -58,14 +62,13 @@ until the event is over.
 Use the official rsctf binary that matches the target deployment:
 
 ```sh
-make validate RSCTF=/path/to/rsctf
-make matrix RSCTF=/path/to/rsctf
-make checkers
-make solutions
+make check RSCTF=/path/to/rsctf
 ```
 
-`make validate` and GitHub Actions invoke rsctf directly. This repository intentionally
-contains no local manifest validator or container-discovery script.
+`make check` runs the official manifest check and dynamic matrix discovery before the
+repository's checker and solution tests. GitHub Actions imports the maintained rsctf action
+and invokes the same CLI directly. This repository intentionally contains no local manifest
+validator or container-discovery script.
 
 ## Publishing boundary
 
@@ -75,10 +78,13 @@ contains no local manifest validator or container-discovery script.
 - Treat `dist/` as player-visible and `solution/` as organizer-only.
 - Keep both events hidden and every imported challenge disabled until the exact revision
   passes the release checklist, a fresh blind playtest, and hidden staging.
-- Enable the Leaderboard claim source and configure rsctf's private managed-reporter origin.
-  rsctf injects a lifecycle-bound secret into the target; it never belongs in Git, a
-  manifest, Compose file, handout, or child gameplay process. Deploy `gateway/` only for a
-  required transport adapter, never for scoring.
+- Keep `Draft Control` on the Boot2Root/Marker claim source. Enable Leaderboard for
+  `Serpent Circuit`, `Rythme`, and `Minions in 32K`, and configure rsctf's private
+  managed-reporter origin. rsctf injects a lifecycle-bound secret into each managed target;
+  it never belongs in Git, a manifest, Compose file, handout, or child gameplay process.
+  Deploy `gateway/` only for a required transport adapter, never for scoring.
 
-Production topology and immutable artifact identities are recorded in
-[docs/production.md](docs/production.md).
+The frozen main-event topology and immutable artifact identities are recorded in
+[docs/production.md](docs/production.md). The hidden warmup remains an unfrozen staging
+candidate until its BYOC, Marker, and managed Leaderboard topology and exact image identities
+are recorded there.

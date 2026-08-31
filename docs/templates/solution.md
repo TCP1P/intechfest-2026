@@ -61,12 +61,20 @@ List exact dependency pins only when the standard library is insufficient.
 
 Prefer text for text protocols. Add a screenshot only when it proves a visual state or makes
 source relationships materially clearer. Store it under `assets/`, link it exactly once, and
-record the capture or `freezed` command. For example:
+record the capture or `freezed` command. The arrow example requires the TCP1P Freezed fork
+at commit `7acde4f1f02abda8224b740a722b32652d1907a2`; no tagged release contains it. Verify the
+installed binary before rendering:
+
+```sh
+freezed --help | grep -F -- '--arrow' >/dev/null
+```
+
+Then render the exact source:
 
 ```sh
 freezed path/to/source.py --lines 20,45 --show-line-numbers --window \
   --theme github-dark --title 'path/to/source.py' \
-  --circle 'vulnerable_call(user_input)' \
+  --arrow 'vulnerable_call(user_input)' \
   -o solution/assets/vuln-input-flow.png
 ```
 

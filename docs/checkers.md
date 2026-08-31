@@ -9,6 +9,12 @@ starting from an example.
 These checked-in KotH examples use the canonical `lib.py` and are intended to be copied only
 for a compatible protocol:
 
+- [Draft Control checker](../events/warmup/challenges/Koth/Web/draft-control/checker/)
+  validates health, exact public protocol metadata, and a mutation-free path preview without
+  reading or writing `/koth/king`.
+- [Serpent Circuit checker](../events/warmup/challenges/Koth/PPC/serpent-circuit/checker/)
+  validates health, rules, and the public board contract without authenticating a player or
+  producing scoring evidence.
 - [Rythme checker](../events/main-event/challenges/Koth/Reverse/rythme/checker/) validates
   health, exact release configuration, the live scheduler clock, and rejected invalid-token
   onboarding without creating a scoring session.
@@ -16,9 +22,10 @@ for a compatible protocol:
   validates health and an active pinned-certificate QUIC quality probe without reading the
   gateway or scoring source.
 
-This repository has no A&D example. A new A&D checker must still use the same canonical
-runtime/verdict contract and verify the current injected flag through ordinary player-visible
-behavior.
+The [Parcel Panic checker](../events/warmup/challenges/AD/Web/parcel-panic/checker/) is the
+self-hosted A&D example. It verifies the current injected flag through the legitimate vault
+contract rather than requiring the intended traversal, so teams can patch the vulnerability
+without breaking service-level checks.
 
 Managed Leaderboard reporting is documented in [Managed KotH reporting](koth-reporting.md).
 It runs beside the authoritative target state and remains separate from the read-only checker
@@ -195,8 +202,9 @@ use, request identity encoding, and bound the streamed response. HTTP stays
 challenge-specific; none of this behavior moves into `lib.py`.
 
 KotH uses the matching runner but receives no flag. Its complete suite must
-cover the intended health/functionality contract and must not touch control
-input: `/koth/king` in marker mode or `/control` in the signed-API example.
+cover the intended health/functionality contract and must not touch the claim
+source: `/koth/king` in Marker mode or authoritative gameplay/evidence state in
+managed Leaderboard mode.
 A minimal KotH checker can register focused health and public-function checks after its
 bounded local protocol helper:
 
@@ -285,8 +293,8 @@ pin before scanning or approving it. Exact direct pins constrain accidental
 top-level drift but do not make a third-party package trustworthy.
 
 Use dependencies only when they make the checker clearer. A raw TCP checker might use an
-exact `pwntools` pin and an HTTP checker might use an exact `httpx` pin. Both current KotH
-checkers use the standard library and intentionally omit `requirements.txt`. `lib.py` remains
+exact `pwntools` pin and an HTTP checker might use an exact `httpx` pin. The warmup checkers
+use the standard library and intentionally omit `requirements.txt`. `lib.py` remains
 protocol-neutral and has no third-party imports.
 
 ## Sandbox rules
@@ -320,11 +328,11 @@ Service code must read its flag file at request time. A creation-time environmen
 value cannot rotate. The checker must not replace the flag itself, because that
 would bypass the platform's delivery path.
 
-KotH is different: it has no flag environment. RSCTF samples either
-`/koth/king` or the latest exact-context signed API observation before and after
-the custom checker, then performs ownership attribution itself. A KotH checker
-should verify a normal health/functionality exchange without reading or
-modifying either control source.
+KotH is different: it has no flag environment. In Marker mode, rsctf samples
+`/koth/king` before and after the custom checker. In managed Leaderboard mode, it
+uses the latest exact-context evidence submitted by the authoritative target.
+The checker performs neither sampling nor submission; it should verify a normal
+health/functionality exchange without reading or modifying either claim source.
 
 Keep a prepared checker beside every enabled A&D and KotH challenge. The TCP
 fallback can diagnose a missing checker, but official epoch scoring does not
@@ -337,12 +345,11 @@ Each checker directory contains only the files copied by Repository Bindings: `l
 repository root, validate manifest integration and all local checker verdict regressions:
 
 ```sh
-make validate
-make checkers
+make check RSCTF=/path/to/rsctf
 ```
 
 For a focused functional check, start the exact service image and run its `checker/run.py`
-with the platform environment. For either current KotH package, change into its package
+with the platform environment. For a KotH package, change into its package
 directory and use:
 
 ```sh
@@ -356,10 +363,10 @@ python3 checker/run.py
 echo $?
 ```
 
-Use the manifest's real exposed port (`8080` for Minions or `1337` for Rythme). KotH sets
-`RSCTF_TEAM_ID=0` and omits `RSCTF_FLAG`. A future A&D checker receives a participation ID
-and the current expected flag. When `requirements.txt` exists, install it into a disposable
-venv with wheel-only exact pins before this run.
+Use the manifest's real exposed port (`8080` for every warmup service and Minions, or `1337`
+for Rythme). KotH sets `RSCTF_TEAM_ID=0` and omits `RSCTF_FLAG`. An A&D checker receives a
+participation ID and the current expected flag. When `requirements.txt` exists, install it
+into a disposable venv with wheel-only exact pins before this run.
 
 CI uses the matrix emitted by rsctf to build every bundled context and waits for each
 service's Docker `HEALTHCHECK`. It does not exercise all checker verdict classes or

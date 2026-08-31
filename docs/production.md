@@ -1,9 +1,11 @@
-# Production release contract
+# Main-event production release contract
 
 Release candidate: `2026.08.28.1`
 
-This document defines the production-ready artifact and deployment contract for
-the INTECHFEST event. Live game IDs, capabilities, reporter secrets, arena
+This frozen release candidate covers only the INTECHFEST main event. The hidden warmup is
+still an unfrozen staging candidate; record its BYOC, Marker, and managed Leaderboard
+topology plus exact image identities here before promoting it. Live game IDs, capabilities,
+reporter secrets, arena
 credentials, and TLS private keys are operational state and must never be
 committed.
 
@@ -25,7 +27,7 @@ The coordinator owns gameplay,
 health, its finalized-wave ledger, and managed evidence reporting; there is no
 duplicate health-only target or private scoring endpoint. rsctf injects exact
 context/observation URLs and a lifecycle-bound credential when it creates the
-active API-scored target. The coordinator filters the credential out of player
+active managed Leaderboard target. The coordinator filters the credential out of player
 responses and submits native heat evidence, never platform points. The gateway
 keeps the released client's stable hostname pointed at the current target. The
 target exposes no scoring endpoint, and the gateway also denies the retired path as
@@ -56,7 +58,7 @@ networks.
 Run these from the repository root before creating immutable images:
 
 ```sh
-make check
+make check RSCTF=/path/to/rsctf
 gitleaks git --staged --config .gitleaks.toml .
 
 (cd events/main-event/challenges/Koth/Reverse/rythme/src/server && go test -race ./... && go vet ./...)

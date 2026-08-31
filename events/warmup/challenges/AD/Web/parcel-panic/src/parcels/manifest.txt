@@ -1,0 +1,3 @@
+Parcel Panic dispatch manifest
+depot_root=/srv/parcels
+example=manifest.txt
