@@ -24,8 +24,6 @@ from capability_auth import CapabilityUnavailable
 from http_transport import BoundedReader as _BoundedReader
 from http_transport import BoundedThreadingHTTPServer
 from reporter import load_config as load_reporter_config
-from reporter import CONTEXT_MAX_AGE_MS
-from reporter import CONTEXT_MAX_FUTURE_MS
 from reporter import ReporterRuntime
 from reporter import RoundContext
 from reporter import start_managed_reporter
@@ -378,12 +376,6 @@ def _current_managed_context() -> ManagedContext:
     if context is None:
         raise GameError(503, "the scoring roster is not ready")
     if time.monotonic() - context.refreshed_at > MAX_CONTEXT_STALENESS_SECONDS:
-        raise GameError(503, "the scoring roster is temporarily stale")
-    current_time_ms = now_ms()
-    if (
-        context.generated_at < current_time_ms - CONTEXT_MAX_AGE_MS
-        or context.generated_at > current_time_ms + CONTEXT_MAX_FUTURE_MS
-    ):
         raise GameError(503, "the scoring roster is temporarily stale")
     return context
 

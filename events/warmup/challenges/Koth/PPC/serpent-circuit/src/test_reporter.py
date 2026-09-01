@@ -88,16 +88,22 @@ class CaptureServer:
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self):
-                length = int(self.headers["Content-Length"])
-                body = self.rfile.read(length)
-                owner.requests.append((dict(self.headers), body))
+            def _respond(self):
                 encoded = json.dumps(acknowledgement).encode()
                 self.send_response(owner.status)
                 self.send_header("Content-Type", owner.content_type)
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
+
+            def do_GET(self):
+                self._respond()
+
+            def do_POST(self):
+                length = int(self.headers["Content-Length"])
+                body = self.rfile.read(length)
+                owner.requests.append((dict(self.headers), body))
+                self._respond()
 
             def log_message(self, *_args):
                 pass
@@ -290,6 +296,17 @@ class ConfigurationTests(unittest.TestCase):
                 client.fetch_context()
         self.assertNotIsInstance(permanent.exception, reporter.ReporterInactive)
 
+    def test_current_rsctf_retry_shape_is_classified_as_an_inactive_gap(self):
+        response = {
+            "code": "stale_context",
+            "status": 409,
+            "title": reporter.INACTIVE_CONTEXT_TITLE,
+        }
+        with CaptureServer(response, status=409) as server:
+            client = reporter.ManagedReporter(config(server.url), lambda _cursor: feed([]))
+            with self.assertRaises(reporter.ReporterInactive):
+                client.fetch_context()
+
     def test_absent_environment_disables_reporting(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(reporter.load_config())
@@ -330,7 +347,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertTrue(body["waves"])
         self.assertTrue(all(wave["teams"] == [] for wave in body["waves"]))
 
-    def test_replayed_context_expires_instead_of_refreshing_gameplay(self):
+    def test_durable_context_remains_valid_across_unchanged_polls(self):
         client = reporter.ManagedReporter(config(), lambda _cursor: feed([]))
         raw_context = {
             "apiVersion": "v1",
@@ -354,12 +371,33 @@ class ConfigurationTests(unittest.TestCase):
         client.context = first
         with (
             patch.object(client, "_get_json", return_value=raw_context),
-            patch(
-                "reporter.time.time_ns",
-                return_value=(180_000 + reporter.CONTEXT_MAX_AGE_MS + 1) * 1_000_000,
-            ),
+            patch("reporter.time.time_ns", return_value=300_000_000_000),
         ):
-            with self.assertRaisesRegex(RuntimeError, "stale"):
+            unchanged = client.fetch_context()
+        self.assertEqual(unchanged, first)
+
+    def test_context_generation_cannot_regress_within_a_lifecycle(self):
+        client = reporter.ManagedReporter(config(), lambda _cursor: feed([]))
+        client.context = context(generated_at=180_000)
+        raw_context = {
+            "apiVersion": "v1",
+            "context": client.context.opaque,
+            "cycleNumber": client.context.cycle_number,
+            "cycleEndsAt": client.context.cycle_ends_at,
+            "resetAttempt": client.context.reset_attempt,
+            "roundNumber": client.context.round_number,
+            "waveWindowStartsAt": client.context.starts_at,
+            "waveWindowEndsAt": client.context.ends_at,
+            "eligibleTokenHashes": list(client.context.eligible_hashes),
+            "objectiveIds": list(client.context.objective_ids),
+            "objectiveSchemaHash": client.context.objective_schema_hash,
+            "generatedAt": 179_999,
+        }
+        with (
+            patch.object(client, "_get_json", return_value=raw_context),
+            patch("reporter.time.time_ns", return_value=300_000_000_000),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "regressed"):
                 client.fetch_context()
 
     def test_roster_bound_is_independent_from_actual_team_wave_rows(self):

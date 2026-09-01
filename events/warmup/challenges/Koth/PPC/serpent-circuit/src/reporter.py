@@ -25,7 +25,6 @@ MAX_PAGE_EVENTS = 1_000
 WAVE_DURATION_MS = 60_000
 WAVE_FINALIZATION_LAG_MS = 2_000
 LEGACY_SETTLEMENT_LAG_MS = 20_000
-CONTEXT_MAX_AGE_MS = 8_000
 CONTEXT_MAX_FUTURE_MS = 5_000
 HEALTH_FAILURE_THRESHOLD = 3
 HEALTH_FAILURE_GRACE_SECONDS = 15.0
@@ -347,17 +346,32 @@ def _request_json(request: urllib.request.Request, timeout: float) -> dict[str, 
             escaped = raw_detail.decode("utf-8", errors="replace").strip()
             detail = escaped.encode("unicode_escape").decode("ascii")[:512] or detail
         else:
+            fields = set(decoded_detail) if isinstance(decoded_detail, dict) else set()
             if (
                 error.headers is not None
                 and error.headers.get_content_type() == "application/json"
                 and isinstance(decoded_detail, dict)
-                and set(decoded_detail) == {"status", "title"}
+                and fields in (
+                    {"status", "title"},
+                    {"code", "status", "title"},
+                )
                 and isinstance(decoded_detail["status"], int)
                 and not isinstance(decoded_detail["status"], bool)
                 and decoded_detail["status"] == error.code
                 and isinstance(decoded_detail["title"], str)
                 and 0 < len(decoded_detail["title"]) <= 512
                 and all(ord(character) >= 32 for character in decoded_detail["title"])
+                and (
+                    "code" not in fields
+                    or (
+                        isinstance(decoded_detail["code"], str)
+                        and 0 < len(decoded_detail["code"]) <= 128
+                        and all(
+                            32 <= ord(character) < 127
+                            for character in decoded_detail["code"]
+                        )
+                    )
+                )
             ):
                 detail = decoded_detail["title"]
         raise ReporterHttpError(error.code, detail or "request rejected") from error
@@ -496,17 +510,22 @@ class ManagedReporter:
             raise RuntimeError("RSCTF returned inconsistent KotH scoring bounds")
         generated_at = _integer(value["generatedAt"], 1, 2**63 - 1, "generatedAt")
         current_time_ms = time.time_ns() // 1_000_000
-        if (
-            generated_at < current_time_ms - CONTEXT_MAX_AGE_MS
-            or generated_at > current_time_ms + CONTEXT_MAX_FUTURE_MS
-        ):
-            raise RuntimeError("RSCTF returned a stale KotH arena context")
+        if generated_at > current_time_ms + CONTEXT_MAX_FUTURE_MS:
+            raise RuntimeError("RSCTF returned a future KotH arena context")
         same_lifecycle = self.context is not None and (
             self.context.cycle_number
             == _integer(value["cycleNumber"], 1, 2**31 - 1, "cycleNumber")
             and self.context.reset_attempt
             == _integer(value["resetAttempt"], 0, 2**31 - 1, "resetAttempt")
         )
+        if same_lifecycle and generated_at < self.context.generated_at:
+            raise RuntimeError("RSCTF returned a regressed KotH arena context")
+        if (
+            same_lifecycle
+            and opaque != self.context.opaque
+            and generated_at <= self.context.generated_at
+        ):
+            raise RuntimeError("RSCTF returned an unfenced KotH arena context")
         if same_lifecycle:
             scoring_floor = self.context.scoring_floor
         else:

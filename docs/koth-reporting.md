@@ -93,8 +93,10 @@ values have these meanings:
   integer. A change to the cycle/reset pair is a lifecycle fence, not a continuation of the
   prior reporter state.
 - `cycleStartsAt`, `cycleEndsAt`, `scoringEndsAt`, both wave-window bounds, and
-  `generatedAt` are Unix milliseconds. Reject booleans, floating-point values, stale
-  `generatedAt` values, reversed bounds, and values outside the reporter's integer limits.
+  `generatedAt` are Unix milliseconds. Reject booleans, floating-point values, future or
+  regressing `generatedAt` values, reversed bounds, and values outside the reporter's
+  integer limits. `generatedAt` is a durable generation fence, not a response timestamp:
+  an unchanged context can legitimately retain it for a full scoring round.
 - `cycleStartsAt` is the stable, inclusive start of the first official Leaderboard scoring
   round for this lifecycle. It does not move on a target restart or later checker round.
 - `cycleEndsAt` is the event deadline retained under its compatibility name.
