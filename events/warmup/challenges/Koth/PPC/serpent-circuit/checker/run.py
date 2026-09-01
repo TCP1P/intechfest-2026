@@ -17,11 +17,12 @@ HEALTH_KEYS = {
     "name",
     "status",
     "mode",
+    "players",
     "protocol",
     "reporter",
+    "rooms",
     "scoringReady",
-    "waveSeconds",
-    "turnCount",
+    "turnSeconds",
 }
 REPORTER_KEYS = {"alive", "consecutiveFailures", "state"}
 REPORTER_STATES = {"starting", "waiting", "ready", "retrying"}
@@ -31,8 +32,10 @@ RULE_KEYS = {
     "boardSize",
     "startPosition",
     "finishPosition",
-    "waveSeconds",
-    "turnCount",
+    "minPlayers",
+    "maxPlayers",
+    "turnSeconds",
+    "scoringWaveSeconds",
     "objective",
     "transitions",
     "rules",
@@ -55,11 +58,12 @@ EXPECTED_TRANSITIONS = [
     {"from": 97, "to": 76, "kind": "snake"},
 ]
 EXPECTED_RULES = [
-    "Each 60-second wave gives every team the same twelve dice pairs.",
-    "Choose one die from each pair; the server applies choices in turn order.",
-    "A move past 100 stays on its current square before any transport is applied.",
-    "Each team receives one one-use run per wave.",
-    "Route efficiency is (finalPosition - startPosition) / (optimalPosition - startPosition).",
+    "Create a private room or join one with its six-character code.",
+    "Two to four players take turns rolling one server-generated six-sided die.",
+    "Ladders climb and snakes slide immediately after a legal move.",
+    "A roll must land exactly on 100; an overshoot leaves the piece in place.",
+    "Rolling a six grants another turn, and an expired turn is rolled automatically.",
+    "The first player to reach 100 wins the match.",
 ]
 
 
@@ -106,7 +110,9 @@ def _get_json(context: KothContext, path: str) -> dict[str, Any]:
 
 def _check_capability_rejection(context: KothContext) -> None:
     body = json.dumps(
-        {"token": INVALID_PROBE_TOKEN}, separators=(",", ":"), sort_keys=True
+        {"name": "checker", "token": INVALID_PROBE_TOKEN},
+        separators=(",", ":"),
+        sort_keys=True,
     ).encode()
     connection: HTTPConnection | None = None
     try:
@@ -117,7 +123,7 @@ def _check_capability_rejection(context: KothContext) -> None:
         )
         connection.request(
             "POST",
-            "/api/session",
+            "/api/rooms",
             body=body,
             headers={
                 "Accept": "application/json",
@@ -166,9 +172,15 @@ def _validate_health(document: dict[str, Any]) -> None:
         document["scoringReady"], bool
     ):
         raise Mumble("the service did not report a managed lifecycle state")
-    if document["protocol"] != "serpent-circuit/1":
+    if document["protocol"] != "serpent-circuit/2":
         raise Mumble("the health response reported the wrong protocol")
-    if document["waveSeconds"] != 60 or document["turnCount"] != 12:
+    if (
+        document["turnSeconds"] != 30
+        or not _is_integer(document["rooms"])
+        or not 0 <= document["rooms"] <= 500
+        or not _is_integer(document["players"])
+        or not 0 <= document["players"] <= 2_000
+    ):
         raise Mumble("the health response reported the wrong match timing")
     reporter = document["reporter"]
     if not isinstance(reporter, dict) or set(reporter) != REPORTER_KEYS:
@@ -214,13 +226,15 @@ def _validate_rules(document: dict[str, Any]) -> None:
         raise Mumble("the rules response shape was incorrect")
     expected_scalars = {
         "name": "Serpent Circuit",
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "boardSize": 100,
-        "startPosition": 1,
+        "startPosition": 0,
         "finishPosition": 100,
-        "waveSeconds": 60,
-        "turnCount": 12,
-        "objective": "route-efficiency",
+        "minPlayers": 2,
+        "maxPlayers": 4,
+        "turnSeconds": 30,
+        "scoringWaveSeconds": 60,
+        "objective": "board-progress",
     }
     for key, expected in expected_scalars.items():
         if document[key] != expected or (

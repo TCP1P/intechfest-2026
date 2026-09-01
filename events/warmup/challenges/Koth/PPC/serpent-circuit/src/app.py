@@ -1,11 +1,10 @@
-"""Authoritative HTTP game server for the Serpent Circuit Leaderboard hill."""
+"""Authoritative multiplayer HTTP server for the Serpent Circuit hill."""
 
 from __future__ import annotations
 
 from collections import OrderedDict, deque
 from copy import deepcopy
-from dataclasses import dataclass
-from functools import lru_cache
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
@@ -30,23 +29,33 @@ from reporter import start_managed_reporter
 
 
 NAME = "Serpent Circuit"
-PROTOCOL = "serpent-circuit/1"
-PROTOCOL_VERSION = 1
+PROTOCOL = "serpent-circuit/2"
+PROTOCOL_VERSION = 2
 PORT = 8080
 BOARD_SIZE = 100
-START_POSITION = 1
+START_POSITION = 0
 FINISH_POSITION = 100
-WAVE_SECONDS = 60
-WAVE_DURATION_MS = WAVE_SECONDS * 1_000
-TURN_COUNT = 12
-OBJECTIVE_ID = "route-efficiency"
+MIN_PLAYERS = 2
+MAX_PLAYERS = 4
+TURN_SECONDS = 30
+MAX_MATCH_TURNS = 1_000
+SCORING_WAVE_SECONDS = 60
+WAVE_DURATION_MS = SCORING_WAVE_SECONDS * 1_000
+OBJECTIVE_ID = "board-progress"
+ROOM_CODE_LENGTH = 6
+ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+PLAYER_COLORS = ("coral", "blue", "green", "purple")
+MAX_NAME_BYTES = 48
 MAX_REQUEST_BYTES = 4 * 1_024
 MAX_REQUEST_STREAM_BYTES = 12 * 1_024
 MAX_RESPONSE_EVENTS = 1_000
 MAX_EVENTS = 10_000
-MAX_WAVE_ADMISSIONS = 2_000
-MAX_ACTIVE_TEAM_WAVE_ADMISSIONS = MAX_WAVE_ADMISSIONS * 2
-MAX_SESSIONS = MAX_ACTIVE_TEAM_WAVE_ADMISSIONS * 2
+MAX_ROOMS = 500
+MAX_SEATS = 2_000
+MAX_ACTIONS_PER_ROOM = 256
+LOBBY_TTL_MS = 30 * 60 * 1_000
+PLAYING_TTL_MS = 2 * 60 * 60 * 1_000
+FINISHED_TTL_MS = 10 * 60 * 1_000
 MAX_HTTP_WORKERS = 64
 MAX_REGULAR_HTTP_WORKERS = 56
 MAX_REQUESTS_PER_CLIENT = MAX_REGULAR_HTTP_WORKERS
@@ -55,11 +64,13 @@ CONNECTION_TIMEOUT_SECONDS = 4
 ABSOLUTE_REQUEST_SECONDS = 6
 MAX_CONTEXT_STALENESS_SECONDS = 8
 TOKEN_PATTERN = re.compile(r"^koth_[A-Za-z0-9_-]{8,128}$")
+ROOM_CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{6}$")
+ACTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 CANONICAL_HASH = re.compile(r"^[0-9a-f]{64}$")
 STATIC_ROOT = Path(__file__).with_name("static")
 
-# This board is original to Serpent Circuit. Every transition is applied once,
-# immediately after a die move. It deliberately has no cycles.
+# This board is original to Serpent Circuit. A transition is applied once,
+# immediately after a legal die move, and the graph deliberately has no cycles.
 TRANSITIONS = {
     3: 24,
     8: 30,
@@ -92,20 +103,6 @@ class CapabilityConfig:
     challenge_id: int
 
 
-@dataclass
-class Session:
-    token_hash: str
-    wave_start_ms: int
-    wave_end_ms: int
-    turns: tuple[tuple[int, int], ...]
-    context_opaque: str | None
-    cycle_number: int
-    reset_attempt: int
-    consumed: bool = False
-    choices: tuple[int, ...] | None = None
-    result: dict[str, object] | None = None
-
-
 @dataclass(frozen=True)
 class ManagedContext:
     opaque: str
@@ -126,23 +123,42 @@ class CapabilityCandidate:
     config: CapabilityConfig | None
 
 
-@dataclass(frozen=True)
-class SessionAdmission:
-    server_time_ms: int
-    wave_start_ms: int
-    wave_end_ms: int
-    turns: tuple[tuple[int, int], ...]
+@dataclass
+class Player:
+    player_id: str
+    player_token: str
+    token_hash: str
+    name: str
+    color: str
+    position: int = START_POSITION
+
+
+@dataclass
+class Room:
+    code: str
+    host_player_id: str
     context_opaque: str | None
     cycle_number: int
     reset_attempt: int
-    run_key: tuple[int, str, int, int]
-    admission_key: tuple[int, int, int]
+    created_at_ms: int
+    last_activity_ms: int
+    players: list[Player] = field(default_factory=list)
+    status: str = "lobby"
+    current_player_index: int = 0
+    turn_deadline_ms: int | None = None
+    turn_number: int = 0
+    winner_id: str | None = None
+    finished_at_ms: int | None = None
+    score_status: str = "pending"
+    last_move: dict[str, object] | None = None
+    actions: OrderedDict[str, dict[str, object]] = field(default_factory=OrderedDict)
 
 
 state_lock = threading.Lock()
-sessions: OrderedDict[str, Session] = OrderedDict()
-started_runs: OrderedDict[tuple[int, str, int, int], str] = OrderedDict()
-wave_admissions: OrderedDict[tuple[int, int, int], int] = OrderedDict()
+rooms: OrderedDict[str, Room] = OrderedDict()
+seat_index: dict[str, tuple[str, str]] = {}
+active_team_seats: dict[tuple[int, int, str], str] = {}
+scored_team_waves: set[tuple[int, int, int, str]] = set()
 events: deque[dict[str, object]] = deque(maxlen=MAX_EVENTS)
 next_cursor = 1
 managed_context_lock = threading.Lock()
@@ -163,22 +179,6 @@ def wave_start(timestamp_ms: int) -> int:
     return timestamp_ms // WAVE_DURATION_MS * WAVE_DURATION_MS
 
 
-@lru_cache(maxsize=4)
-def turn_pairs(start_ms: int) -> tuple[tuple[int, int], ...]:
-    """Return the same deterministic, original choice sequence for every team."""
-    pairs: list[tuple[int, int]] = []
-    for turn in range(1, TURN_COUNT + 1):
-        digest = hashlib.sha256(
-            f"serpent-circuit:v1:{start_ms}:{turn}".encode()
-        ).digest()
-        first = digest[0] % 6 + 1
-        second = digest[1] % 6 + 1
-        if second == first:
-            second = second % 6 + 1
-        pairs.append((first, second))
-    return tuple(pairs)
-
-
 def apply_roll(position: int, roll: int) -> tuple[int, int | None, int | None]:
     landing = position + roll
     if landing > FINISH_POSITION:
@@ -187,18 +187,6 @@ def apply_roll(position: int, roll: int) -> tuple[int, int | None, int | None]:
     if destination is None:
         return landing, None, None
     return destination, landing, destination
-
-
-@lru_cache(maxsize=4)
-def optimal_position(turns: tuple[tuple[int, int], ...]) -> int:
-    positions = {START_POSITION}
-    for options in turns:
-        positions = {
-            apply_roll(position, roll)[0]
-            for position in positions
-            for roll in options
-        }
-    return max(positions)
 
 
 def rules_document() -> dict[str, object]:
@@ -213,20 +201,23 @@ def rules_document() -> dict[str, object]:
     return {
         "boardSize": BOARD_SIZE,
         "finishPosition": FINISH_POSITION,
+        "maxPlayers": MAX_PLAYERS,
+        "minPlayers": MIN_PLAYERS,
         "name": NAME,
         "objective": OBJECTIVE_ID,
         "protocolVersion": PROTOCOL_VERSION,
         "rules": [
-            "Each 60-second wave gives every team the same twelve dice pairs.",
-            "Choose one die from each pair; the server applies choices in turn order.",
-            "A move past 100 stays on its current square before any transport is applied.",
-            "Each team receives one one-use run per wave.",
-            "Route efficiency is (finalPosition - startPosition) / (optimalPosition - startPosition).",
+            "Create a private room or join one with its six-character code.",
+            "Two to four players take turns rolling one server-generated six-sided die.",
+            "Ladders climb and snakes slide immediately after a legal move.",
+            "A roll must land exactly on 100; an overshoot leaves the piece in place.",
+            "Rolling a six grants another turn, and an expired turn is rolled automatically.",
+            "The first player to reach 100 wins the match.",
         ],
+        "scoringWaveSeconds": SCORING_WAVE_SECONDS,
         "startPosition": START_POSITION,
         "transitions": transitions,
-        "turnCount": TURN_COUNT,
-        "waveSeconds": WAVE_SECONDS,
+        "turnSeconds": TURN_SECONDS,
     }
 
 
@@ -256,8 +247,6 @@ def capability_config() -> CapabilityConfig | None:
     if not all(present):
         raise RuntimeError("incomplete managed KotH environment")
 
-    # Gameplay and scoring are one lifecycle-bound contract. A valid capability
-    # endpoint with a broken reporter must not admit runs that cannot be scored.
     try:
         reporter_config = load_reporter_config()
     except ValueError as error:
@@ -321,27 +310,27 @@ def scoring_ready() -> bool:
 
 
 def health_document() -> tuple[int, dict[str, object]]:
-    """Return a startup-tolerant health verdict with persistent failures visible."""
     mode = runtime_mode()
     reporter, reporter_healthy = reporter_runtime.health_snapshot()
     ready = scoring_ready()
     healthy = mode != "misconfigured"
     if mode == "managed":
-        # A normal context rotation briefly revokes gameplay while the reporter
-        # submits the replacement snapshot. That is readiness, not a liveness
-        # failure. Persistent retries or a dead reporter still fail health.
         healthy = reporter_healthy
+    with state_lock:
+        room_count = len(rooms)
+        player_count = len(seat_index)
     return (
         200 if healthy else 503,
         {
             "mode": mode,
             "name": NAME,
+            "players": player_count,
             "protocol": PROTOCOL,
             "reporter": reporter,
+            "rooms": room_count,
             "scoringReady": ready,
             "status": "ok" if healthy else "error",
-            "turnCount": TURN_COUNT,
-            "waveSeconds": WAVE_SECONDS,
+            "turnSeconds": TURN_SECONDS,
         },
     )
 
@@ -349,8 +338,6 @@ def health_document() -> tuple[int, dict[str, object]]:
 def publish_managed_context(context: RoundContext | None) -> None:
     """Atomically publish only a context that rsctf accepted for scoring."""
     global managed_context
-    # Match gameplay's state -> context lock order so a rotation cannot become
-    # visible halfway through accepting one result.
     with state_lock:
         with managed_context_lock:
             managed_context = (
@@ -381,7 +368,6 @@ def _current_managed_context() -> ManagedContext:
 
 
 def _capability_candidate(token: str) -> CapabilityCandidate | None:
-    """Reject malformed/non-roster values before any platform request."""
     if not TOKEN_PATTERN.fullmatch(token):
         return None
     config = capability_config()
@@ -393,22 +379,14 @@ def _capability_candidate(token: str) -> CapabilityCandidate | None:
                 config=None,
             )
         raise GameError(503, "managed gameplay is not configured")
-    # Reject non-roster hashes before the authenticated platform call. This
-    # prevents arbitrary token guesses from amplifying into control-plane work;
-    # the bounded authenticator still confirms every admitted player identity.
     context = _current_managed_context()
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     if token_hash not in context.eligible_hashes:
         return None
-    return CapabilityCandidate(
-        token_hash=token_hash,
-        context=context,
-        config=config,
-    )
+    return CapabilityCandidate(token_hash=token_hash, context=context, config=config)
 
 
 def _confirm_capability(token: str, candidate: CapabilityCandidate) -> None:
-    """Confirm a new managed session against RSCTF's live auth boundary."""
     if candidate.config is None:
         return
     if candidate.context is None:
@@ -428,255 +406,478 @@ def _confirm_capability(token: str, candidate: CapabilityCandidate) -> None:
         raise GameError(503, "capability authentication is temporarily unavailable") from error
 
 
-def _session_document(
-    session_id: str,
-    session: Session,
-    server_time_ms: int,
-) -> dict[str, object]:
-    return {
-        "serverTime": server_time_ms,
-        "sessionId": session_id,
-        "turns": [
-            {"options": list(options), "turn": index}
-            for index, options in enumerate(session.turns, 1)
-        ],
-        "waveEndsAt": session.wave_end_ms,
-        "waveId": f"serpent-{session.wave_start_ms}",
-    }
+def _validate_name(value: object) -> str:
+    if not isinstance(value, str):
+        raise GameError(400, "name must be a string")
+    name = value.strip()
+    if not name or len(name.encode("utf-8")) > MAX_NAME_BYTES:
+        raise GameError(400, "name must contain 1 to 48 UTF-8 bytes")
+    if any(ord(character) < 32 or ord(character) == 127 for character in name):
+        raise GameError(400, "name contains unsupported control characters")
+    return name
 
 
-def _managed_identity_is_current(session: Session, timestamp_ms: int) -> None:
-    if session.context_opaque is None:
+def _validate_room_code(value: object) -> str:
+    if not isinstance(value, str):
+        raise GameError(400, "roomCode must be a string")
+    code = value.strip().upper()
+    if not ROOM_CODE_PATTERN.fullmatch(code):
+        raise GameError(400, "roomCode must be six unambiguous letters or digits")
+    return code
+
+
+def _validate_player_token(value: object) -> str:
+    if not isinstance(value, str) or not 16 <= len(value) <= 128:
+        raise GameError(400, "invalid playerToken")
+    return value
+
+
+def _validate_action_id(value: object) -> str:
+    if not isinstance(value, str) or not ACTION_ID_PATTERN.fullmatch(value):
+        raise GameError(400, "invalid actionId")
+    return value
+
+
+def _candidate_lifecycle(candidate: CapabilityCandidate) -> tuple[int, int]:
+    context = candidate.context
+    return (
+        context.cycle_number if context else 0,
+        context.reset_attempt if context else 0,
+    )
+
+
+def _team_key(room: Room, token_hash: str) -> tuple[int, int, str]:
+    return (room.cycle_number, room.reset_attempt, token_hash)
+
+
+def _ensure_candidate_current_locked(candidate: CapabilityCandidate) -> ManagedContext | None:
+    context = candidate.context
+    if context is None:
+        return None
+    current = _current_managed_context()
+    if (
+        current.opaque != context.opaque
+        or current.cycle_number != context.cycle_number
+        or current.reset_attempt != context.reset_attempt
+        or candidate.token_hash not in current.eligible_hashes
+    ):
+        raise GameError(503, "the scoring roster changed; retry the request")
+    return current
+
+
+def _managed_room_is_current(room: Room, timestamp_ms: int) -> None:
+    if room.context_opaque is None:
         return
     context = _current_managed_context()
     if timestamp_ms >= context.cycle_ends_at:
         raise GameError(410, "the scoring cycle has ended")
     if (
-        session.cycle_number != context.cycle_number
-        or session.reset_attempt != context.reset_attempt
+        room.cycle_number != context.cycle_number
+        or room.reset_attempt != context.reset_attempt
     ):
         raise GameError(410, "the scoring lifecycle changed")
-    if session.token_hash not in context.eligible_hashes:
-        raise GameError(403, "the KotH capability is no longer current")
+    if any(player.token_hash not in context.eligible_hashes for player in room.players):
+        raise GameError(403, "a room capability is no longer current")
 
 
-def _prune_state(timestamp_ms: int) -> None:
+def _room_expired(room: Room, timestamp_ms: int) -> bool:
+    if room.status == "finished":
+        return timestamp_ms - room.last_activity_ms >= FINISHED_TTL_MS
+    if room.status == "playing":
+        return timestamp_ms - room.last_activity_ms >= PLAYING_TTL_MS
+    return timestamp_ms - room.last_activity_ms >= LOBBY_TTL_MS
+
+
+def _drop_room_locked(room_code: str) -> None:
+    room = rooms.pop(room_code, None)
+    if room is None:
+        return
+    for player in room.players:
+        seat_index.pop(player.player_token, None)
+        key = _team_key(room, player.token_hash)
+        if active_team_seats.get(key) == player.player_token:
+            active_team_seats.pop(key, None)
+
+
+def _prune_state_locked(timestamp_ms: int) -> None:
+    for room_code, room in list(rooms.items()):
+        if _room_expired(room, timestamp_ms):
+            _drop_room_locked(room_code)
+    while len(rooms) > MAX_ROOMS:
+        _drop_room_locked(next(iter(rooms)))
+
     oldest_wave = wave_start(timestamp_ms) - WAVE_DURATION_MS
-    for session_id in list(sessions):
-        if len(sessions) <= MAX_SESSIONS and sessions[session_id].wave_start_ms >= oldest_wave:
-            continue
-        sessions.pop(session_id, None)
-    for key in list(started_runs):
-        if key[0] < oldest_wave:
-            started_runs.pop(key, None)
-    for key in list(wave_admissions):
-        if key[0] < oldest_wave:
-            wave_admissions.pop(key, None)
-
-
-def _session_admission_locked(
-    candidate: CapabilityCandidate,
-    timestamp_ms: int,
-) -> SessionAdmission:
-    context = candidate.context
-    if context is not None:
-        current_context = _current_managed_context()
-        if (
-            current_context.opaque != context.opaque
-            or current_context.cycle_number != context.cycle_number
-            or current_context.reset_attempt != context.reset_attempt
-            or candidate.token_hash not in current_context.eligible_hashes
-        ):
-            raise GameError(503, "the scoring roster changed; retry the request")
-        context = current_context
-
-    start_ms = wave_start(timestamp_ms)
-    end_ms = start_ms + WAVE_DURATION_MS
-    if context is not None and start_ms < context.first_scorable_wave_start:
-        raise GameError(409, "wait for the first complete scoring wave")
-    if context is not None and end_ms > context.final_scoring_cutoff:
-        raise GameError(409, "the event ends before another complete scoring wave")
-
-    cycle_number = context.cycle_number if context else 0
-    reset_attempt = context.reset_attempt if context else 0
-    _prune_state(timestamp_ms)
-    return SessionAdmission(
-        server_time_ms=timestamp_ms,
-        wave_start_ms=start_ms,
-        wave_end_ms=end_ms,
-        turns=turn_pairs(start_ms),
-        context_opaque=context.opaque if context else None,
-        cycle_number=cycle_number,
-        reset_attempt=reset_attempt,
-        run_key=(start_ms, candidate.token_hash, cycle_number, reset_attempt),
-        admission_key=(start_ms, cycle_number, reset_attempt),
+    scored_team_waves.intersection_update(
+        key for key in scored_team_waves if key[0] >= oldest_wave
     )
 
 
-def _existing_session_locked(admission: SessionAdmission) -> dict[str, object] | None:
-    session_id = started_runs.get(admission.run_key)
-    if session_id is None:
+def _new_room_code_locked() -> str:
+    for _attempt in range(128):
+        code = "".join(secrets.choice(ROOM_CODE_ALPHABET) for _ in range(ROOM_CODE_LENGTH))
+        if code not in rooms:
+            return code
+    raise GameError(503, "room codes are temporarily exhausted")
+
+
+def _new_secret(existing: object) -> str:
+    for _attempt in range(128):
+        value = secrets.token_urlsafe(24)
+        if value not in existing:
+            return value
+    raise GameError(503, "player identifiers are temporarily exhausted")
+
+
+def _find_player(room: Room, player_id: str) -> Player:
+    for player in room.players:
+        if player.player_id == player_id:
+            return player
+    raise GameError(404, "unknown player")
+
+
+def _authorized_room_locked(room_code: str, player_token: str) -> tuple[Room, Player]:
+    indexed = seat_index.get(player_token)
+    if indexed is None or indexed[0] != room_code:
+        raise GameError(403, "invalid room player token")
+    room = rooms.get(room_code)
+    if room is None:
+        raise GameError(404, "room not found")
+    return room, _find_player(room, indexed[1])
+
+
+def _room_document(room: Room, player: Player, timestamp_ms: int) -> dict[str, object]:
+    current_id = (
+        room.players[room.current_player_index].player_id
+        if room.status == "playing" and room.players
+        else None
+    )
+    return {
+        "code": room.code,
+        "currentPlayerId": current_id,
+        "lastMove": deepcopy(room.last_move),
+        "maxPlayers": MAX_PLAYERS,
+        "minPlayers": MIN_PLAYERS,
+        "players": [
+            {
+                "color": item.color,
+                "id": item.player_id,
+                "isHost": item.player_id == room.host_player_id,
+                "name": item.name,
+                "position": item.position,
+            }
+            for item in room.players
+        ],
+        "scoreStatus": room.score_status,
+        "serverTime": timestamp_ms,
+        "status": room.status,
+        "turnDeadline": room.turn_deadline_ms,
+        "turnNumber": room.turn_number,
+        "winnerId": room.winner_id,
+        "you": {"id": player.player_id},
+    }
+
+
+def _seat_response(room: Room, player: Player, timestamp_ms: int) -> dict[str, object]:
+    return {
+        "playerToken": player.player_token,
+        "room": _room_document(room, player, timestamp_ms),
+    }
+
+
+def _existing_active_seat_locked(
+    candidate: CapabilityCandidate,
+    requested_code: str | None,
+    timestamp_ms: int,
+) -> dict[str, object] | None:
+    cycle, reset = _candidate_lifecycle(candidate)
+    key = (cycle, reset, candidate.token_hash)
+    player_token = active_team_seats.get(key)
+    if player_token is None:
         return None
-    session = sessions.get(session_id)
-    if session is None:
-        raise GameError(503, "the prior session is temporarily unavailable")
-    return _session_document(session_id, session, admission.server_time_ms)
+    indexed = seat_index.get(player_token)
+    if indexed is None:
+        active_team_seats.pop(key, None)
+        return None
+    room = rooms.get(indexed[0])
+    if room is None or room.status == "finished":
+        active_team_seats.pop(key, None)
+        return None
+    if requested_code is not None and room.code != requested_code:
+        raise GameError(409, f"this team is already active in room {room.code}")
+    return _seat_response(room, _find_player(room, indexed[1]), timestamp_ms)
 
 
-def create_session(token: str, timestamp_ms: int | None = None) -> dict[str, object]:
+def create_room(token: str, name: object, timestamp_ms: int | None = None) -> dict[str, object]:
+    name = _validate_name(name)
     candidate = _capability_candidate(token)
     if candidate is None:
         raise GameError(403, "invalid current KotH capability")
-
-    # A retry for an already-authenticated team-wave is safe to return after
-    # revalidating the live context. A genuinely new session must cross RSCTF's
-    # current authentication boundary, even if an earlier request succeeded.
-    with state_lock:
-        preflight_time = now_ms() if timestamp_ms is None else timestamp_ms
-        preflight = _session_admission_locked(candidate, preflight_time)
-        existing = _existing_session_locked(preflight)
-        if existing is not None:
-            return existing
-
     _confirm_capability(token, candidate)
 
     with state_lock:
         timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
-        admission = _session_admission_locked(candidate, timestamp_ms)
-        existing = _existing_session_locked(admission)
+        _prune_state_locked(timestamp_ms)
+        context = _ensure_candidate_current_locked(candidate)
+        existing = _existing_active_seat_locked(candidate, None, timestamp_ms)
         if existing is not None:
             return existing
-        wave_rows = wave_admissions.get(admission.admission_key, 0)
-        active_rows = sum(
-            count
-            for (wave, cycle_number, reset_attempt), count in wave_admissions.items()
-            if wave >= admission.wave_start_ms - WAVE_DURATION_MS
-            and cycle_number == admission.cycle_number
-            and reset_attempt == admission.reset_attempt
-        )
-        if (
-            active_rows >= MAX_ACTIVE_TEAM_WAVE_ADMISSIONS
-            or wave_rows >= MAX_WAVE_ADMISSIONS
-        ):
-            raise GameError(503, "the arena team-wave admission budget is full")
-        if len(sessions) >= MAX_SESSIONS:
-            raise GameError(503, "the arena session budget is full")
-        session_id = secrets.token_urlsafe(24)
-        while session_id in sessions:
-            session_id = secrets.token_urlsafe(24)
-        sessions[session_id] = Session(
+        if len(rooms) >= MAX_ROOMS or len(seat_index) >= MAX_SEATS:
+            raise GameError(503, "the multiplayer room budget is full")
+
+        code = _new_room_code_locked()
+        player_ids = {player.player_id for room in rooms.values() for player in room.players}
+        player_id = _new_secret(player_ids)
+        player_token = _new_secret(seat_index)
+        player = Player(
+            player_id=player_id,
+            player_token=player_token,
             token_hash=candidate.token_hash,
-            wave_start_ms=admission.wave_start_ms,
-            wave_end_ms=admission.wave_end_ms,
-            turns=admission.turns,
-            context_opaque=admission.context_opaque,
-            cycle_number=admission.cycle_number,
-            reset_attempt=admission.reset_attempt,
+            name=name,
+            color=PLAYER_COLORS[0],
         )
-        started_runs[admission.run_key] = session_id
-        wave_admissions[admission.admission_key] = wave_rows + 1
-        response = _session_document(session_id, sessions[session_id], timestamp_ms)
-
-    return response
-
-
-def _validated_choices(value: object) -> list[int]:
-    if not isinstance(value, list) or len(value) != TURN_COUNT:
-        raise GameError(400, f"selections must contain exactly {TURN_COUNT} turns")
-    choices: list[int] = []
-    for expected_turn, selection in enumerate(value, 1):
-        if (
-            not isinstance(selection, dict)
-            or set(selection) != {"turn", "choice"}
-            or isinstance(selection["turn"], bool)
-            or selection["turn"] != expected_turn
-            or isinstance(selection["choice"], bool)
-            or not isinstance(selection["choice"], int)
-            or not 0 <= selection["choice"] <= 1
-        ):
-            raise GameError(400, "selections must be ordered turns with choice 0 or 1")
-        choices.append(selection["choice"])
-    return choices
+        room = Room(
+            code=code,
+            host_player_id=player_id,
+            context_opaque=context.opaque if context else None,
+            cycle_number=context.cycle_number if context else 0,
+            reset_attempt=context.reset_attempt if context else 0,
+            created_at_ms=timestamp_ms,
+            last_activity_ms=timestamp_ms,
+            players=[player],
+        )
+        rooms[code] = room
+        seat_index[player_token] = (code, player_id)
+        active_team_seats[_team_key(room, candidate.token_hash)] = player_token
+        return _seat_response(room, player, timestamp_ms)
 
 
-def play_session(
-    session_id: object,
-    selections: object,
+def join_room(
+    token: str,
+    name: object,
+    room_code: object,
     timestamp_ms: int | None = None,
 ) -> dict[str, object]:
-    global next_cursor
-
-    if not isinstance(session_id, str) or not 16 <= len(session_id) <= 128:
-        raise GameError(400, "invalid sessionId")
-    choices = _validated_choices(selections)
-    explicit_timestamp = timestamp_ms
+    name = _validate_name(name)
+    code = _validate_room_code(room_code)
+    candidate = _capability_candidate(token)
+    if candidate is None:
+        raise GameError(403, "invalid current KotH capability")
+    _confirm_capability(token, candidate)
 
     with state_lock:
-        timestamp_ms = now_ms() if explicit_timestamp is None else explicit_timestamp
-        _prune_state(timestamp_ms)
-        session = sessions.get(session_id)
-        if session is None:
-            raise GameError(404, "unknown session")
-        choice_tuple = tuple(choices)
-        if session.result is not None:
-            if session.choices != choice_tuple:
-                raise GameError(409, "session was already played with different choices")
-            return deepcopy(session.result)
-        if session.consumed:
-            raise GameError(410, "the session wave has ended")
-        _managed_identity_is_current(session, timestamp_ms)
-        if timestamp_ms >= session.wave_end_ms:
-            session.consumed = True
-            raise GameError(410, "the session wave has ended")
-        session.consumed = True
+        timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
+        _prune_state_locked(timestamp_ms)
+        context = _ensure_candidate_current_locked(candidate)
+        existing = _existing_active_seat_locked(candidate, code, timestamp_ms)
+        if existing is not None:
+            return existing
+        room = rooms.get(code)
+        if room is None:
+            raise GameError(404, "room not found")
+        if room.status != "lobby":
+            raise GameError(409, "the match has already started")
+        if len(room.players) >= MAX_PLAYERS:
+            raise GameError(409, "the room is full")
+        lifecycle = _candidate_lifecycle(candidate)
+        if lifecycle != (room.cycle_number, room.reset_attempt):
+            raise GameError(409, "the room belongs to a different scoring lifecycle")
+        if len(seat_index) >= MAX_SEATS:
+            raise GameError(503, "the multiplayer player budget is full")
 
-        position = START_POSITION
-        landings: list[dict[str, object]] = []
-        for turn, (options, choice) in enumerate(zip(session.turns, choices), 1):
-            origin = position
-            roll = options[choice]
-            position, transport_from, transport_to = apply_roll(position, roll)
-            landings.append(
-                {
-                    "from": origin,
-                    "roll": roll,
-                    "to": position,
-                    "transportFrom": transport_from,
-                    "transportTo": transport_to,
-                    "turn": turn,
-                }
-            )
+        player_ids = {player.player_id for item in rooms.values() for player in item.players}
+        player_id = _new_secret(player_ids)
+        player_token = _new_secret(seat_index)
+        player = Player(
+            player_id=player_id,
+            player_token=player_token,
+            token_hash=candidate.token_hash,
+            name=name,
+            color=PLAYER_COLORS[len(room.players)],
+        )
+        room.players.append(player)
+        room.last_activity_ms = timestamp_ms
+        rooms.move_to_end(code)
+        seat_index[player_token] = (code, player_id)
+        active_team_seats[_team_key(room, candidate.token_hash)] = player_token
+        return _seat_response(room, player, timestamp_ms)
 
-        optimum = optimal_position(session.turns)
-        best_progress = max(0, optimum - START_POSITION)
-        earned = min(max(0, position - START_POSITION), best_progress)
-        possible = max(1, best_progress)
+
+def _cache_action(room: Room, action_id: str, response: dict[str, object]) -> None:
+    room.actions[action_id] = deepcopy(response)
+    room.actions.move_to_end(action_id)
+    while len(room.actions) > MAX_ACTIONS_PER_ROOM:
+        room.actions.popitem(last=False)
+
+
+def _record_match_locked(room: Room, timestamp_ms: int) -> None:
+    global next_cursor
+    score_wave = wave_start(timestamp_ms)
+    if room.context_opaque is not None:
+        context = _current_managed_context()
+        if (
+            score_wave < context.first_scorable_wave_start
+            or score_wave + WAVE_DURATION_MS > context.final_scoring_cutoff
+        ):
+            room.score_status = "outside-scoring-window"
+            return
+
+    recorded = False
+    for player in room.players:
+        key = (score_wave, room.cycle_number, room.reset_attempt, player.token_hash)
+        if key in scored_team_waves:
+            continue
+        scored_team_waves.add(key)
         events.append(
             {
                 "cursor": next_cursor,
-                "cycleNumber": session.cycle_number,
-                "earned": earned,
+                "cycleNumber": room.cycle_number,
+                "earned": player.position,
                 "occurredAt": timestamp_ms,
-                "possible": possible,
-                "resetAttempt": session.reset_attempt,
-                "tokenHash": session.token_hash,
-                "waveStart": session.wave_start_ms,
+                "possible": FINISH_POSITION,
+                "resetAttempt": room.reset_attempt,
+                "tokenHash": player.token_hash,
+                "waveStart": score_wave,
             }
         )
         next_cursor += 1
+        recorded = True
+    room.score_status = "recorded" if recorded else "already-recorded-this-wave"
 
-        result: dict[str, object] = {
-            "accepted": True,
-            "efficiency": {"earned": earned, "possible": possible},
-            "finalPosition": position,
-            "landings": landings,
-            "optimalPosition": optimum,
-            "waveId": f"serpent-{session.wave_start_ms}",
-        }
-        session.choices = choice_tuple
-        session.result = result
 
-    return deepcopy(result)
+def _finish_match_locked(room: Room, timestamp_ms: int, winner_id: str | None) -> None:
+    room.status = "finished"
+    room.winner_id = winner_id
+    room.finished_at_ms = timestamp_ms
+    room.turn_deadline_ms = None
+    for player in room.players:
+        key = _team_key(room, player.token_hash)
+        if active_team_seats.get(key) == player.player_token:
+            active_team_seats.pop(key, None)
+    _record_match_locked(room, timestamp_ms)
+
+
+def _roll_locked(room: Room, timestamp_ms: int, *, automatic: bool) -> None:
+    if room.status != "playing":
+        raise GameError(409, "the match is not active")
+    player = room.players[room.current_player_index]
+    origin = player.position
+    roll = secrets.randbelow(6) + 1
+    position, transport_from, transport_to = apply_roll(origin, roll)
+    player.position = position
+    room.turn_number += 1
+
+    won = position == FINISH_POSITION
+    extra_turn = roll == 6 and not won
+    if not won and room.turn_number < MAX_MATCH_TURNS:
+        if not extra_turn:
+            room.current_player_index = (room.current_player_index + 1) % len(room.players)
+        room.turn_deadline_ms = timestamp_ms + TURN_SECONDS * 1_000
+
+    room.last_move = {
+        "automatic": automatic,
+        "extraTurn": extra_turn,
+        "from": origin,
+        "playerId": player.player_id,
+        "roll": roll,
+        "to": position,
+        "transportFrom": transport_from,
+        "transportTo": transport_to,
+    }
+    room.last_activity_ms = timestamp_ms
+    if won:
+        _finish_match_locked(room, timestamp_ms, player.player_id)
+    elif room.turn_number >= MAX_MATCH_TURNS:
+        _finish_match_locked(room, timestamp_ms, None)
+
+
+def _advance_expired_turn_locked(room: Room, timestamp_ms: int) -> None:
+    if (
+        room.status == "playing"
+        and room.turn_deadline_ms is not None
+        and timestamp_ms >= room.turn_deadline_ms
+    ):
+        _roll_locked(room, timestamp_ms, automatic=True)
+
+
+def room_state(
+    room_code: object,
+    player_token: object,
+    timestamp_ms: int | None = None,
+) -> dict[str, object]:
+    code = _validate_room_code(room_code)
+    token = _validate_player_token(player_token)
+    with state_lock:
+        timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
+        _prune_state_locked(timestamp_ms)
+        room, player = _authorized_room_locked(code, token)
+        _managed_room_is_current(room, timestamp_ms)
+        _advance_expired_turn_locked(room, timestamp_ms)
+        room.last_activity_ms = timestamp_ms
+        rooms.move_to_end(code)
+        return _room_document(room, player, timestamp_ms)
+
+
+def start_room(
+    room_code: object,
+    player_token: object,
+    action_id: object,
+    timestamp_ms: int | None = None,
+) -> dict[str, object]:
+    code = _validate_room_code(room_code)
+    token = _validate_player_token(player_token)
+    action = _validate_action_id(action_id)
+    with state_lock:
+        timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
+        _prune_state_locked(timestamp_ms)
+        room, player = _authorized_room_locked(code, token)
+        _managed_room_is_current(room, timestamp_ms)
+        cached = room.actions.get(action)
+        if cached is not None:
+            return deepcopy(cached)
+        if player.player_id != room.host_player_id:
+            raise GameError(403, "only the room host can start the match")
+        if room.status != "lobby":
+            raise GameError(409, "the match has already started")
+        if len(room.players) < MIN_PLAYERS:
+            raise GameError(409, "at least two players are required")
+
+        room.status = "playing"
+        room.current_player_index = 0
+        room.turn_deadline_ms = timestamp_ms + TURN_SECONDS * 1_000
+        room.last_activity_ms = timestamp_ms
+        response = _room_document(room, player, timestamp_ms)
+        _cache_action(room, action, response)
+        return response
+
+
+def roll_room(
+    room_code: object,
+    player_token: object,
+    action_id: object,
+    timestamp_ms: int | None = None,
+) -> dict[str, object]:
+    code = _validate_room_code(room_code)
+    token = _validate_player_token(player_token)
+    action = _validate_action_id(action_id)
+    with state_lock:
+        timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
+        _prune_state_locked(timestamp_ms)
+        room, player = _authorized_room_locked(code, token)
+        _managed_room_is_current(room, timestamp_ms)
+        cached = room.actions.get(action)
+        if cached is not None:
+            return deepcopy(cached)
+        _advance_expired_turn_locked(room, timestamp_ms)
+        if room.status != "playing":
+            raise GameError(409, "the match is not active")
+        current = room.players[room.current_player_index]
+        if current.player_id != player.player_id:
+            raise GameError(409, "wait for your turn")
+
+        _roll_locked(room, timestamp_ms, automatic=False)
+        response = _room_document(room, player, timestamp_ms)
+        _cache_action(room, action, response)
+        return response
 
 
 def read_evidence_page(after: int) -> dict[str, object]:
@@ -703,10 +904,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def setup(self) -> None:
         super().setup()
-        self.rfile = _BoundedReader(
-            self.rfile,
-            self.server.request_stream_bytes,
-        )
+        self.rfile = _BoundedReader(self.rfile, self.server.request_stream_bytes)
 
     def handle(self) -> None:
         try:
@@ -801,44 +999,73 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(404, {"error": "not found"})
 
+    def _handle_action(self, expected_keys: set[str], action, success_status: int = 200) -> None:
+        value = self._read_json(expected_keys)
+        if value is None:
+            return
+        try:
+            result = action(value)
+        except GameError as error:
+            self._json(error.status, {"error": error.message})
+            return
+        except RuntimeError:
+            self._json(503, {"error": "managed gameplay is misconfigured"})
+            return
+        self._json(success_status, result)
+
+    @staticmethod
+    def _token(value: object) -> str:
+        if not isinstance(value, str):
+            raise GameError(400, "token must be a string")
+        return value
+
     def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler contract
         request = urllib.parse.urlsplit(self.path)
         if request.query:
             self._json(400, {"error": "query parameters are not accepted"})
             return
-        if request.path == "/api/session":
-            value = self._read_json({"token"})
-            if value is None:
-                return
-            token = value["token"]
-            if not isinstance(token, str):
-                self._json(400, {"error": "token must be a string"})
-                return
-            try:
-                result = create_session(token)
-            except GameError as error:
-                self._json(error.status, {"error": error.message})
-                return
-            except RuntimeError:
-                self._json(503, {"error": "managed gameplay is misconfigured"})
-                return
-            self._json(201, result)
+        if request.path == "/api/rooms":
+            self._handle_action(
+                {"name", "token"},
+                lambda value: create_room(self._token(value["token"]), value["name"]),
+                201,
+            )
             return
-        if request.path == "/api/play":
-            value = self._read_json({"sessionId", "selections"})
-            if value is None:
-                return
-            try:
-                result = play_session(value["sessionId"], value["selections"])
-            except GameError as error:
-                self._json(error.status, {"error": error.message})
-                return
-            self._json(200, result)
+        if request.path == "/api/rooms/join":
+            self._handle_action(
+                {"name", "roomCode", "token"},
+                lambda value: join_room(
+                    self._token(value["token"]), value["name"], value["roomCode"]
+                ),
+                201,
+            )
+            return
+        if request.path == "/api/rooms/state":
+            self._handle_action(
+                {"playerToken", "roomCode"},
+                lambda value: room_state(value["roomCode"], value["playerToken"]),
+            )
+            return
+        if request.path == "/api/rooms/start":
+            self._handle_action(
+                {"actionId", "playerToken", "roomCode"},
+                lambda value: start_room(
+                    value["roomCode"], value["playerToken"], value["actionId"]
+                ),
+            )
+            return
+        if request.path == "/api/rooms/roll":
+            self._handle_action(
+                {"actionId", "playerToken", "roomCode"},
+                lambda value: roll_room(
+                    value["roomCode"], value["playerToken"], value["actionId"]
+                ),
+            )
             return
         self._json(404, {"error": "not found"})
 
     def log_message(self, _format, *_args):
-        # Request bodies may contain current capabilities, so access logs stay off.
+        # Request bodies may contain current capabilities or room session tokens.
         pass
 
 
@@ -847,8 +1074,6 @@ class Server(BoundedThreadingHTTPServer):
     max_regular_workers = MAX_REGULAR_HTTP_WORKERS
     max_requests_per_client = MAX_REQUESTS_PER_CLIENT
     max_pending_requests = MAX_PENDING_HTTP_REQUESTS
-    # Leave room for protected health traffic to finish its TCP handshake
-    # while the classifier evicts an older silent connection.
     request_queue_size = MAX_PENDING_HTTP_REQUESTS + MAX_HTTP_WORKERS
     request_stream_bytes = MAX_REQUEST_STREAM_BYTES
     read_timeout_seconds = CONNECTION_TIMEOUT_SECONDS
@@ -870,11 +1095,7 @@ def main() -> None:
         raise SystemExit("PORT must be an integer") from error
     if not 1 <= port <= 65535:
         raise SystemExit("PORT must be in 1..65535")
-    start_managed_reporter(
-        read_evidence_page,
-        publish_managed_context,
-        reporter_runtime,
-    )
+    start_managed_reporter(read_evidence_page, publish_managed_context, reporter_runtime)
     Server(("0.0.0.0", port), Handler).serve_forever()
 
 

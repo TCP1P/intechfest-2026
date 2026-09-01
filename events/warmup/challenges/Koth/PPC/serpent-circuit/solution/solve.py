@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Compute and submit one optimal Serpent Circuit route."""
+"""Create and complete one server-authoritative Serpent Circuit match."""
 
 import argparse
 import json
+import secrets
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
-MAX_RESPONSE_BYTES, TIMEOUT_SECONDS = 1_000_000, 8
+MAX_RESPONSE_BYTES = 64 * 1024
+TIMEOUT_SECONDS = 8
 
 
 def request_json(base_url, path, payload=None):
-    """Send one bounded JSON request and return an object response."""
+    """Send one bounded player-visible request and return its JSON object."""
     body = None if payload is None else json.dumps(payload).encode()
-    headers = {"Content-Type": "application/json"} if body is not None else {}
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     request = Request(base_url.rstrip("/") + path, data=body, headers=headers)
     try:
         with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
@@ -29,80 +33,103 @@ def request_json(base_url, path, payload=None):
     return result
 
 
-def optimal_selections(rules, turns):
-    """Return the best legal choice path under the public board rules."""
-    if not isinstance(turns, list) or not turns:
-        raise ValueError("session contains no turns")
+def action_id():
+    return secrets.token_hex(12)
+
+
+def seat_values(response):
     try:
-        start = int(rules["startPosition"])
-        finish = int(rules["finishPosition"])
-        board_size = int(rules["boardSize"])
-        transitions = {int(item["from"]): int(item["to"]) for item in rules["transitions"]}
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("invalid rules response") from error
-    if not 0 <= start < finish <= board_size:
-        raise ValueError("invalid board bounds")
-
-    paths = {start: []}
-    for turn, item in enumerate(turns, 1):
-        if not isinstance(item, dict) or item.get("turn") != turn:
-            raise ValueError("turns are missing or out of order")
-        options = item.get("options")
-        if not isinstance(options, list) or len(options) != 2:
-            raise ValueError(f"turn {turn} does not have two options")
-        next_paths = {}
-        for position, selections in paths.items():
-            for choice, roll in enumerate(options):
-                if not isinstance(roll, int) or isinstance(roll, bool) or roll <= 0:
-                    raise ValueError(f"turn {turn} has an invalid choice")
-                landing = position if position + roll > finish else position + roll
-                destination = transitions.get(landing, landing)
-                if not 0 <= destination <= finish:
-                    raise ValueError("transition leaves the board")
-                selection = {"turn": turn, "choice": choice}
-                next_paths.setdefault(destination, selections + [selection])
-        paths = next_paths
-    final_position = max(paths)
-    return final_position, paths[final_position]
+        player_token = response["playerToken"]
+        room = response["room"]
+        player_id = room["you"]["id"]
+        room_code = room["code"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("server returned an invalid room seat") from error
+    if not all(isinstance(value, str) and value for value in (player_token, player_id, room_code)):
+        raise ValueError("server returned an invalid room seat")
+    return player_token, player_id, room_code, room
 
 
-def solve(base_url, token):
-    """Solve and submit one player-visible scoring session."""
+def solve(base_url, capabilities, max_rolls):
+    """Create a room, play every supplied seat, and return the match result."""
     rules = request_json(base_url, "/api/rules")
-    session = request_json(base_url, "/api/session", {"token": token})
-    session_id = session.get("sessionId")
-    turns = session.get("turns")
-    wave_id = session.get("waveId")
-    if not isinstance(session_id, str) or not session_id or not isinstance(wave_id, str):
-        raise ValueError("invalid session response")
-    expected, selections = optimal_selections(rules, turns)
-    play = {"sessionId": session_id, "selections": selections}
-    result = request_json(base_url, "/api/play", play)
-    final = result.get("finalPosition")
-    optimal = result.get("optimalPosition")
-    efficiency = result.get("efficiency")
-    valid_efficiency = (
-        isinstance(efficiency, dict)
-        and type(efficiency.get("earned")) is int
-        and efficiency.get("earned") == efficiency.get("possible")
+    if rules.get("protocolVersion") != 2 or rules.get("minPlayers") != 2:
+        raise ValueError("target does not expose the multiplayer contract")
+
+    host = request_json(
+        base_url,
+        "/api/rooms",
+        {"name": "Solver 1", "token": capabilities[0]},
     )
-    correct_result = result.get("accepted") is True and final == optimal == expected
-    correct_wave = result.get("waveId") == session.get("waveId")
-    if not correct_result or not correct_wave or not valid_efficiency:
-        raise ValueError("server result does not confirm the computed optimum")
+    host_token, host_id, room_code, room = seat_values(host)
+    tokens_by_player = {host_id: host_token}
+    for number, capability in enumerate(capabilities[1:], 2):
+        seat = request_json(
+            base_url,
+            "/api/rooms/join",
+            {"name": f"Solver {number}", "roomCode": room_code, "token": capability},
+        )
+        player_token, player_id, joined_code, room = seat_values(seat)
+        if joined_code != room_code:
+            raise ValueError("joined a different room")
+        tokens_by_player[player_id] = player_token
+
+    room = request_json(
+        base_url,
+        "/api/rooms/start",
+        {"actionId": action_id(), "playerToken": host_token, "roomCode": room_code},
+    )
+    rolls = 0
+    while room.get("status") == "playing" and rolls < max_rolls:
+        current_id = room.get("currentPlayerId")
+        if current_id not in tokens_by_player:
+            raise ValueError("server selected an unknown current player")
+        room = request_json(
+            base_url,
+            "/api/rooms/roll",
+            {
+                "actionId": action_id(),
+                "playerToken": tokens_by_player[current_id],
+                "roomCode": room_code,
+            },
+        )
+        rolls += 1
+    if room.get("status") != "finished":
+        raise ValueError(f"match did not finish within {max_rolls} rolls")
+
+    players = room.get("players")
+    if not isinstance(players, list) or len(players) != len(capabilities):
+        raise ValueError("server returned an invalid final roster")
+    winner = next(
+        (player for player in players if player.get("id") == room.get("winnerId")),
+        None,
+    )
+    if winner is None or winner.get("position") != 100:
+        raise ValueError("server did not confirm an exact-finish winner")
+    positions = ", ".join(f"{player['name']}={player['position']}" for player in players)
     return (
-        f"wave {wave_id}: final {final}/{optimal}, "
-        f"efficiency {efficiency['earned']}/{efficiency['possible']}"
+        f"room {room_code}: {winner['name']} won after {rolls} rolls; "
+        f"{positions}; score={room.get('scoreStatus')}"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True, help="issued Serpent Circuit URL")
-    parser.add_argument("--token", required=True, help="team KotH capability")
+    parser.add_argument(
+        "--capability",
+        action="append",
+        required=True,
+        help="distinct KotH capability; supply two to four times",
+    )
+    parser.add_argument("--max-rolls", type=int, default=1000)
     args = parser.parse_args()
+    if not 2 <= len(args.capability) <= 4:
+        parser.error("--capability must be supplied two to four times")
+    if not 1 <= args.max_rolls <= 1000:
+        parser.error("--max-rolls must be in 1..1000")
     try:
-        result = solve(args.url, args.token)
+        result = solve(args.url, args.capability, args.max_rolls)
     except (OSError, ValueError) as error:
         parser.exit(1, f"solve failed: {error}\n")
     print(result)

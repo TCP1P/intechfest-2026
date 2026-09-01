@@ -26,16 +26,19 @@ Leaderboard game or suggest that ordinary content points are scored.
 
 ## Serpent Circuit
 
-Serpent Circuit is an original server-authoritative Snake & Ladders route-optimization game.
-Use `wave`, `route`, `roll`, `snake`, `ladder`, `efficiency`, and `Crown`. The browser board
-uses CSS and text labels rather than copied artwork, exposes the same rules as the API, and
-must remain keyboard-operable, screen-reader understandable, and usable at 320 px.
+Serpent Circuit is an original server-authoritative multiplayer Snakes & Ladders game. Use
+`room`, `turn`, `roll`, `snake`, `ladder`, `match`, and `Crown`. Two to four authenticated
+teams share one private room and race to square 100 under traditional rules. The browser
+board uses CSS and text labels rather than copied artwork, exposes the same rules as the API,
+and must remain keyboard-operable, screen-reader understandable, and usable at 320 px.
 
 The gameplay concept was requested with
 [`MichaelDepp/snake-ladder` at `7bf22a3`](https://github.com/MichaelDepp/snake-ladder/tree/7bf22a3d7f14c18984ab67782531fed1a297169a)
-as a reference. That repository publishes no license, so this repository copies none of its
-HTML, JavaScript, CSS, questions, images, or screenshots. Keep the pinned reference and this
-provenance boundary in the organizer solution.
+as its first reference. The later classic-board UI direction references
+[`yashksaini/snakes-and-ladders-game` at `d8dc452`](https://github.com/yashksaini/snakes-and-ladders-game/tree/d8dc452601b7075ba21e3f81179fe57e30f4c64e).
+Neither repository publishes a license, so this repository copies none of their HTML,
+JavaScript, CSS, questions, images, avatars, audio, board mappings, or screenshots. Keep both
+pinned references and this provenance boundary in the organizer solution.
 
 ## Rythme
 

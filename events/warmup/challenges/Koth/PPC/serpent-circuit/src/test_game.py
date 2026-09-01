@@ -1,28 +1,23 @@
-"""Regression tests for the authoritative Serpent Circuit game state."""
+"""Regression tests for the authoritative Serpent Circuit multiplayer state."""
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
-from contextlib import redirect_stderr
 from http.client import HTTPConnection
-import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import struct
-from concurrent.futures import ThreadPoolExecutor
-import socket
+from threading import Event, Thread
 import time
 import unittest
 from unittest.mock import patch
-from threading import Event, Thread
 
 import app
-import http_transport
 import reporter
 
 
-LOCAL_TOKEN = "koth_local_player_12345"
+LOCAL_TOKENS = [f"koth_local_player_{index:05d}" for index in range(1, 6)]
 MANAGED_ENV = {
     "RSCTF_KOTH_GAME_ID": "7",
     "RSCTF_KOTH_CHALLENGE_ID": "11",
@@ -36,80 +31,369 @@ MANAGED_ENV = {
 class GameTests(unittest.TestCase):
     def setUp(self):
         with app.state_lock:
-            app.sessions.clear()
-            app.started_runs.clear()
-            app.wave_admissions.clear()
+            app.rooms.clear()
+            app.seat_index.clear()
+            app.active_team_seats.clear()
+            app.scored_team_waves.clear()
             app.events.clear()
             app.next_cursor = 1
         app.publish_managed_context(None)
         app.reporter_runtime.set_stopped()
         app.capability_authenticator.reset()
-        connection_patcher = patch.object(
-            app.capability_authenticator,
-            "_connect_upstream",
-        )
+        connection_patcher = patch.object(app.capability_authenticator, "_connect_upstream")
         connection_patcher.start()
         self.addCleanup(connection_patcher.stop)
 
-    def test_board_and_dice_sequence_are_deterministic_and_original(self):
-        first = app.turn_pairs(1_800_000)
-        self.assertEqual(first, app.turn_pairs(1_800_000))
-        self.assertNotEqual(first, app.turn_pairs(1_860_000))
-        self.assertEqual(len(first), app.TURN_COUNT)
-        self.assertTrue(all(len(pair) == 2 and pair[0] != pair[1] for pair in first))
-        self.assertTrue(all(1 <= die <= 6 for pair in first for die in pair))
-        self.assertEqual(len(app.TRANSITIONS), 14)
+    def create_two_player_room(self, timestamp=1_800_100):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", timestamp)
+            guest = app.join_room(
+                LOCAL_TOKENS[1], "Bob", host["room"]["code"], timestamp + 1
+            )
+        return host, guest
+
+    def test_rules_publish_the_multiplayer_contract_and_original_board(self):
+        rules = app.rules_document()
+        self.assertEqual(rules["protocolVersion"], 2)
+        self.assertEqual(rules["startPosition"], 0)
+        self.assertEqual(rules["finishPosition"], 100)
+        self.assertEqual(rules["minPlayers"], 2)
+        self.assertEqual(rules["maxPlayers"], 4)
+        self.assertEqual(rules["turnSeconds"], 30)
+        self.assertEqual(rules["objective"], "board-progress")
+        self.assertEqual(len(rules["transitions"]), 14)
         self.assertFalse(set(app.TRANSITIONS) & set(app.TRANSITIONS.values()))
-        self.assertIn(
-            "Route efficiency is (finalPosition - startPosition) / (optimalPosition - startPosition).",
-            app.rules_document()["rules"],
-        )
+        self.assertIn("The first player to reach 100 wins the match.", rules["rules"])
 
-    def test_optimum_matches_exhaustive_ordered_routes(self):
-        turns = app.turn_pairs(1_800_000)
-        positions = {app.START_POSITION}
-        for pair in turns:
-            positions = {
-                app.apply_roll(position, roll)[0]
-                for position in positions
-                for roll in pair
-            }
-        self.assertEqual(app.optimal_position(turns), max(positions))
+    def test_server_applies_ladders_snakes_and_exact_finish(self):
+        self.assertEqual(app.apply_roll(0, 3), (24, 3, 24))
+        self.assertEqual(app.apply_roll(16, 1), (6, 17, 6))
+        self.assertEqual(app.apply_roll(99, 2), (99, None, None))
+        self.assertEqual(app.apply_roll(99, 1), (100, None, None))
 
-    def test_gameplay_fails_closed_without_managed_or_explicit_local_mode(self):
+    def test_gameplay_fails_closed_without_managed_or_local_mode(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(app.runtime_mode(), "unconfigured")
             with self.assertRaisesRegex(app.GameError, "not configured") as raised:
-                app.create_session(LOCAL_TOKEN, 1_800_100)
+                app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
         self.assertEqual(raised.exception.status, 503)
 
-    def test_partial_environment_fails_closed_but_full_environment_is_managed(self):
+    def test_partial_and_invalid_managed_environments_fail_closed(self):
         with patch.dict(os.environ, {"RSCTF_KOTH_GAME_ID": "7"}, clear=True):
             self.assertEqual(app.runtime_mode(), "misconfigured")
             with self.assertRaisesRegex(RuntimeError, "incomplete"):
-                app.create_session(LOCAL_TOKEN, 1_800_100)
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
-            self.assertEqual(app.runtime_mode(), "managed")
-            self.assertEqual(app.capability_config().challenge_id, 11)
+                app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
 
-    def test_invalid_full_reporter_environment_fails_gameplay_closed(self):
         invalid = dict(MANAGED_ENV)
         invalid["RSCTF_KOTH_REPORTER_SECRET"] = "not-a-target-secret"
         with patch.dict(os.environ, invalid, clear=True):
             self.assertEqual(app.runtime_mode(), "misconfigured")
             with self.assertRaisesRegex(RuntimeError, "invalid managed reporter"):
-                app.create_session(LOCAL_TOKEN, 1_800_100)
+                app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
 
-    def test_health_tolerates_startup_but_surfaces_persistent_reporter_failure(self):
+    def test_create_and_join_return_private_reconnect_tokens(self):
+        host, guest = self.create_two_player_room()
+        room = guest["room"]
+        self.assertRegex(room["code"], app.ROOM_CODE_PATTERN)
+        self.assertEqual(room["status"], "lobby")
+        self.assertEqual([player["name"] for player in room["players"]], ["Alice", "Bob"])
+        self.assertTrue(room["players"][0]["isHost"])
+        self.assertNotEqual(host["playerToken"], guest["playerToken"])
+        encoded = json.dumps(guest)
+        self.assertNotIn(LOCAL_TOKENS[0], encoded)
+        self.assertNotIn(LOCAL_TOKENS[1], encoded)
+
+    def test_create_retry_reconnects_to_the_active_room(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            first = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            retry = app.create_room(LOCAL_TOKENS[0], "Different", 1_800_101)
+        self.assertEqual(first["playerToken"], retry["playerToken"])
+        self.assertEqual(first["room"]["code"], retry["room"]["code"])
+        self.assertEqual(len(app.rooms), 1)
+
+    def test_one_team_cannot_occupy_two_active_rooms(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            first = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            second = app.create_room(LOCAL_TOKENS[1], "Bob", 1_800_101)
+            with self.assertRaisesRegex(app.GameError, "already active") as raised:
+                app.join_room(
+                    LOCAL_TOKENS[0], "Alice", second["room"]["code"], 1_800_102
+                )
+        self.assertEqual(raised.exception.status, 409)
+        self.assertNotEqual(first["room"]["code"], second["room"]["code"])
+
+    def test_room_rejects_invalid_names_codes_and_a_fifth_player(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            with self.assertRaises(app.GameError):
+                app.create_room(LOCAL_TOKENS[0], "\n", 1_800_100)
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_101)
+            with self.assertRaises(app.GameError):
+                app.join_room(LOCAL_TOKENS[1], "Bob", "OOOOOO", 1_800_102)
+            for index in range(1, 4):
+                app.join_room(
+                    LOCAL_TOKENS[index],
+                    f"Player {index + 1}",
+                    host["room"]["code"],
+                    1_800_102 + index,
+                )
+            with self.assertRaisesRegex(app.GameError, "full") as raised:
+                app.join_room(
+                    LOCAL_TOKENS[4], "Fifth", host["room"]["code"], 1_800_110
+                )
+        self.assertEqual(raised.exception.status, 409)
+
+    def test_only_host_can_start_and_two_players_are_required(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            code = host["room"]["code"]
+            with self.assertRaisesRegex(app.GameError, "at least two") as too_few:
+                app.start_room(code, host["playerToken"], "action_start_1", 1_800_101)
+            guest = app.join_room(LOCAL_TOKENS[1], "Bob", code, 1_800_102)
+            with self.assertRaisesRegex(app.GameError, "only the room host") as not_host:
+                app.start_room(code, guest["playerToken"], "action_start_2", 1_800_103)
+            started = app.start_room(code, host["playerToken"], "action_start_3", 1_800_104)
+        self.assertEqual(too_few.exception.status, 409)
+        self.assertEqual(not_host.exception.status, 403)
+        self.assertEqual(started["status"], "playing")
+        self.assertEqual(started["currentPlayerId"], started["you"]["id"])
+        self.assertEqual(started["turnDeadline"], 1_830_104)
+
+    def test_roll_changes_turn_and_is_idempotent(self):
+        host, guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        started = app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with patch.object(app.secrets, "randbelow", return_value=1) as random_die:
+            result = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_201)
+            replay = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_202)
+        self.assertEqual(replay, result)
+        self.assertEqual(result["lastMove"]["roll"], 2)
+        self.assertEqual(result["lastMove"]["to"], 2)
+        self.assertEqual(result["currentPlayerId"], guest["room"]["you"]["id"])
+        self.assertEqual(random_die.call_count, 1)
+        self.assertEqual(started["turnNumber"], 0)
+
+    def test_rolling_six_grants_another_turn(self):
+        host, _guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with patch.object(app.secrets, "randbelow", return_value=5):
+            result = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_201)
+        self.assertEqual(result["currentPlayerId"], result["you"]["id"])
+        self.assertTrue(result["lastMove"]["extraTurn"])
+        self.assertEqual(result["lastMove"]["roll"], 6)
+
+    def test_wrong_player_cannot_roll(self):
+        host, guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with self.assertRaisesRegex(app.GameError, "wait for your turn") as raised:
+            app.roll_room(code, guest["playerToken"], "action_roll_001", 1_800_201)
+        self.assertEqual(raised.exception.status, 409)
+
+    def test_expired_turn_is_rolled_automatically(self):
+        host, guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            state = app.room_state(code, guest["playerToken"], 1_830_200)
+        self.assertTrue(state["lastMove"]["automatic"])
+        self.assertEqual(state["lastMove"]["roll"], 1)
+        self.assertEqual(state["currentPlayerId"], state["you"]["id"])
+
+    def test_winner_finishes_match_and_records_every_player_position(self):
+        host, guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 99
+            room.players[1].position = 71
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            result = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_020)
+
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(result["winnerId"], result["you"]["id"])
+        self.assertEqual(result["scoreStatus"], "recorded")
+        feed = app.read_evidence_page(0)
+        self.assertEqual(len(feed["events"]), 2)
+        self.assertEqual(sorted(event["earned"] for event in feed["events"]), [71, 100])
+        self.assertTrue(all(event["possible"] == 100 for event in feed["events"]))
+        self.assertTrue(all(app.CANONICAL_HASH.fullmatch(event["tokenHash"]) for event in feed["events"]))
+        encoded = json.dumps(feed)
+        self.assertNotIn(LOCAL_TOKENS[0], encoded)
+        self.assertNotIn(LOCAL_TOKENS[1], encoded)
+
+    def test_exact_finish_overshoot_keeps_match_active(self):
+        host, _guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with app.state_lock:
+            app.rooms[code].players[0].position = 99
+        with patch.object(app.secrets, "randbelow", return_value=1):
+            result = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_201)
+        self.assertEqual(result["status"], "playing")
+        self.assertEqual(result["lastMove"]["from"], 99)
+        self.assertEqual(result["lastMove"]["to"], 99)
+
+    def test_finished_team_can_enter_a_new_room(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            app.rooms[code].players[0].position = 99
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_020)
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            replacement = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_030)
+        self.assertNotEqual(replacement["room"]["code"], code)
+
+    def test_match_turn_cap_finishes_as_a_draw(self):
+        host, _guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_200)
+        with app.state_lock:
+            app.rooms[code].turn_number = app.MAX_MATCH_TURNS - 1
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            result = app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_201)
+        self.assertEqual(result["status"], "finished")
+        self.assertIsNone(result["winnerId"])
+
+    def test_scoring_retains_only_one_result_per_team_wave(self):
+        host, guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 99
+            room.players[1].position = 50
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            app.roll_room(code, host["playerToken"], "action_roll_001", 1_800_020)
+
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            second = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_030)
+            second_guest = app.join_room(
+                LOCAL_TOKENS[1], "Bob", second["room"]["code"], 1_800_031
+            )
+        app.start_room(
+            second["room"]["code"], second["playerToken"], "action_start_2", 1_800_032
+        )
+        with app.state_lock:
+            room = app.rooms[second["room"]["code"]]
+            room.players[0].position = 99
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            result = app.roll_room(
+                second["room"]["code"], second["playerToken"], "action_roll_002", 1_800_040
+            )
+        self.assertEqual(result["scoreStatus"], "already-recorded-this-wave")
+        self.assertEqual(len(app.read_evidence_page(0)["events"]), 2)
+        self.assertTrue(second_guest["playerToken"])
+
+    def test_managed_identity_is_authenticated_and_lifecycle_fenced(self):
+        token_hash = hashlib.sha256(LOCAL_TOKENS[0].encode()).hexdigest()
+        context = reporter.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=1_800_000,
+            ends_at=1_860_001,
+            cycle_ends_at=2_000_000,
+            scoring_ends_at=1_980_000,
+            scoring_floor=1_800_000,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({token_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(app.capability_authenticator, "_authenticate_upstream") as authenticate,
+        ):
+            app.publish_managed_context(context)
+            room = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            authenticate.assert_called_once()
+            next_round = reporter.RoundContext(
+                **{
+                    **context.__dict__,
+                    "opaque": "b" * 64,
+                    "round_number": 2,
+                    "generated_at": context.generated_at + 1,
+                }
+            )
+            app.publish_managed_context(next_round)
+            current = app.room_state(
+                room["room"]["code"], room["playerToken"], 1_800_101
+            )
+            self.assertEqual(current["status"], "lobby")
+            changed = reporter.RoundContext(
+                **{**next_round.__dict__, "opaque": "c" * 64, "reset_attempt": 1}
+            )
+            app.publish_managed_context(changed)
+            with self.assertRaisesRegex(app.GameError, "lifecycle changed") as raised:
+                app.room_state(room["room"]["code"], room["playerToken"], 1_800_102)
+        self.assertEqual(raised.exception.status, 410)
+
+    def test_unknown_managed_capability_stops_before_platform_authentication(self):
+        known_hash = hashlib.sha256(LOCAL_TOKENS[0].encode()).hexdigest()
+        context = reporter.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=1_800_000,
+            ends_at=1_860_001,
+            cycle_ends_at=2_000_000,
+            scoring_ends_at=1_980_000,
+            scoring_floor=1_800_000,
+            generated_at=app.now_ms(),
+            eligible_hashes=frozenset({known_hash}),
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(app.capability_authenticator, "_authenticate_upstream") as authenticate,
+        ):
+            app.publish_managed_context(context)
+            with self.assertRaises(app.GameError) as raised:
+                app.create_room(LOCAL_TOKENS[1], "Bob", 1_800_100)
+        self.assertEqual(raised.exception.status, 403)
+        authenticate.assert_not_called()
+
+    def test_concurrent_create_requests_return_one_active_seat(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            with ThreadPoolExecutor(max_workers=16) as executor:
+                results = list(
+                    executor.map(
+                        lambda _index: app.create_room(
+                            LOCAL_TOKENS[0], "Alice", 1_800_100
+                        ),
+                        range(16),
+                    )
+                )
+        self.assertEqual(len({result["playerToken"] for result in results}), 1)
+        self.assertEqual(len(app.rooms), 1)
+
+    def test_room_expiry_releases_seat_indexes(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            room = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            app.create_room(
+                LOCAL_TOKENS[1], "Bob", 1_800_100 + app.LOBBY_TTL_MS + 1
+            )
+        self.assertNotIn(room["room"]["code"], app.rooms)
+        self.assertNotIn(room["playerToken"], app.seat_index)
+
+    def test_health_tolerates_startup_and_surfaces_persistent_reporter_failure(self):
         stop = Event()
-        reporter_thread = Thread(target=stop.wait, daemon=True)
-        app.reporter_runtime.attach(reporter_thread)
-        reporter_thread.start()
+        thread = Thread(target=stop.wait, daemon=True)
+        app.reporter_runtime.attach(thread)
+        thread.start()
         try:
             with patch.dict(os.environ, MANAGED_ENV, clear=True):
                 status, document = app.health_document()
                 self.assertEqual(status, 200)
-                self.assertEqual(document["status"], "ok")
+                self.assertEqual(document["protocol"], "serpent-circuit/2")
+                self.assertEqual(document["turnSeconds"], 30)
 
                 with patch("reporter.time.monotonic", return_value=100.0):
                     for _index in range(reporter.HEALTH_FAILURE_THRESHOLD):
@@ -118,779 +402,63 @@ class GameTests(unittest.TestCase):
                     status, document = app.health_document()
                 self.assertEqual(status, 503)
                 self.assertEqual(document["status"], "error")
-                self.assertEqual(
-                    document["reporter"]["consecutiveFailures"],
-                    reporter.HEALTH_FAILURE_THRESHOLD,
-                )
-
-                app.reporter_runtime.mark_waiting()
-                status, document = app.health_document()
-                self.assertEqual(status, 200)
-                self.assertEqual(document["reporter"]["state"], "waiting")
         finally:
             stop.set()
-            reporter_thread.join()
-
-    def test_health_tolerates_the_normal_context_rotation_readiness_gap(self):
-        stop = Event()
-        reporter_thread = Thread(target=stop.wait, daemon=True)
-        app.reporter_runtime.attach(reporter_thread)
-        reporter_thread.start()
-        try:
-            app.reporter_runtime.mark_ready()
-            with patch.dict(os.environ, MANAGED_ENV, clear=True):
-                status, document = app.health_document()
-
-            self.assertEqual(status, 200)
-            self.assertTrue(document["reporter"]["alive"])
-            self.assertEqual(document["reporter"]["state"], "ready")
-            self.assertFalse(document["scoringReady"])
-        finally:
-            stop.set()
-            reporter_thread.join()
-
-    def test_local_session_creation_and_play_are_idempotent(self):
-        timestamp = 1_800_100
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-            duplicate = app.create_session(LOCAL_TOKEN, timestamp + 1)
-            self.assertEqual(duplicate["sessionId"], session["sessionId"])
-            self.assertEqual(duplicate["turns"], session["turns"])
-            self.assertEqual(session["serverTime"], timestamp)
-            self.assertEqual(duplicate["serverTime"], timestamp + 1)
-            self.assertLessEqual(
-                session["waveEndsAt"] - session["serverTime"],
-                app.WAVE_DURATION_MS,
-            )
-
-        choices = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-        result = app.play_session(session["sessionId"], choices, timestamp + 2)
-        self.assertTrue(result["accepted"])
-        self.assertLessEqual(
-            result["efficiency"]["earned"], result["efficiency"]["possible"]
-        )
-        self.assertEqual(len(result["landings"]), app.TURN_COUNT)
-        replay = app.play_session(session["sessionId"], choices, timestamp + 3)
-        self.assertEqual(replay, result)
-        changed = [dict(selection) for selection in choices]
-        changed[0]["choice"] = 1
-        with self.assertRaises(app.GameError) as conflict:
-            app.play_session(session["sessionId"], changed, timestamp + 4)
-        self.assertEqual(conflict.exception.status, 409)
-
-    def test_concurrent_session_admission_is_idempotent_per_team_wave(self):
-        timestamp = 1_800_100
-
-        def start():
-            try:
-                return app.create_session(LOCAL_TOKEN, timestamp)["sessionId"]
-            except app.GameError as error:
-                return error.status
-
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                results = list(executor.map(lambda _index: start(), range(2)))
-        self.assertEqual(len(set(results)), 1)
-
-    def test_current_team_wave_admission_budget_is_bounded(self):
-        timestamp = 1_800_100
-        start_ms = app.wave_start(timestamp)
-        with app.state_lock:
-            app.wave_admissions[(start_ms, 0, 0)] = app.MAX_WAVE_ADMISSIONS
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            with self.assertRaisesRegex(app.GameError, "admission budget") as full:
-                app.create_session(LOCAL_TOKEN, timestamp)
-        self.assertEqual(full.exception.status, 503)
-
-    def test_managed_wave_accepts_the_full_2_000_team_roster(self):
-        timestamp = 1_800_100
-        tokens = [f"koth_player_{index:04d}_current" for index in range(2_000)]
-        token_hashes = frozenset(
-            hashlib.sha256(token.encode()).hexdigest() for token in tokens
-        )
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=2_000_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=token_hashes,
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                new=lambda **_kwargs: None,
-            ),
-        ):
-            app.publish_managed_context(context)
-            session_ids = {
-                app.create_session(token, timestamp)["sessionId"]
-                for token in tokens
-            }
-            with self.assertRaises(app.GameError) as outsider:
-                app.create_session("koth_player_2000_current", timestamp)
-
-        self.assertEqual(len(session_ids), 2_000)
-        self.assertEqual(len(app.sessions), 2_000)
-        self.assertEqual(outsider.exception.status, 403)
-
-    def test_order_validation_does_not_spend_the_session(self):
-        timestamp = 1_800_100
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-        wrong = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-        wrong[3]["turn"] = 9
-        with self.assertRaises(app.GameError) as malformed:
-            app.play_session(session["sessionId"], wrong, timestamp + 1)
-        self.assertEqual(malformed.exception.status, 400)
-        correct = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-        self.assertTrue(
-            app.play_session(session["sessionId"], correct, timestamp + 2)["accepted"]
-        )
-
-    def test_unhashable_choice_is_a_bounded_player_error(self):
-        selections = [
-            {"turn": turn, "choice": 0}
-            for turn in range(1, app.TURN_COUNT + 1)
-        ]
-        selections[0]["choice"] = []
-        with self.assertRaises(app.GameError) as invalid:
-            app._validated_choices(selections)
-        self.assertEqual(invalid.exception.status, 400)
-
-    def test_server_applies_transport_and_exact_finish_rule(self):
-        self.assertEqual(app.apply_roll(1, 2), (24, 3, 24))
-        self.assertEqual(app.apply_roll(94, 3), (76, 97, 76))
-        self.assertEqual(app.apply_roll(99, 4), (99, None, None))
-
-    def test_evidence_retains_only_the_canonical_hash(self):
-        timestamp = 1_800_100
-        expected_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-        choices = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-        app.play_session(session["sessionId"], choices, timestamp + 1)
-        page = app.read_evidence_page(0)
-        self.assertEqual(page["events"][0]["tokenHash"], expected_hash)
-        self.assertNotIn(LOCAL_TOKEN, repr(app.sessions))
-        self.assertNotIn(LOCAL_TOKEN, repr(page))
-        self.assertEqual(page["events"][0]["cycleNumber"], 0)
-        self.assertEqual(page["events"][0]["resetAttempt"], 0)
-
-    def test_wave_expiry_consumes_the_session_without_evidence(self):
-        timestamp = 1_800_100
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-        choices = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-        with self.assertRaises(app.GameError) as expired:
-            app.play_session(session["sessionId"], choices, session["waveEndsAt"])
-        self.assertEqual(expired.exception.status, 410)
-        self.assertEqual(app.read_evidence_page(0)["events"], [])
-
-    def test_accepted_connections_receive_the_slow_client_deadline(self):
-        server = app.Server(("127.0.0.1", 0), app.Handler)
-        client = socket.create_connection(server.server_address, timeout=1)
-        accepted, _address = server.get_request()
-        try:
-            self.assertEqual(accepted.gettimeout(), app.CONNECTION_TIMEOUT_SECONDS)
-        finally:
-            client.close()
-            accepted.close()
-            server.server_close()
-
-    def test_managed_roster_authentication_is_platform_confirmed_and_lifecycle_fenced(self):
-        timestamp = 1_800_100
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        initial = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=2_000_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                return_value=None,
-            ),
-        ):
-            app.publish_managed_context(initial)
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-            self.assertEqual(session["waveId"], "serpent-1800000")
-
-            rotated = app.RoundContext(
-                **{**initial.__dict__, "opaque": "c" * 64, "reset_attempt": 1}
-            )
-            app.publish_managed_context(rotated)
-            replacement = app.create_session(LOCAL_TOKEN, timestamp + 1)
-            self.assertNotEqual(replacement["sessionId"], session["sessionId"])
-            choices = [
-                {"turn": turn["turn"], "choice": 0}
-                for turn in session["turns"]
-            ]
-            with self.assertRaises(app.GameError) as stale:
-                app.play_session(session["sessionId"], choices, timestamp + 1)
-        self.assertEqual(stale.exception.status, 410)
-
-    def test_managed_roster_rejects_unknown_and_stale_capabilities(self):
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=2_000_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with patch.dict(os.environ, MANAGED_ENV, clear=True):
-            app.publish_managed_context(context)
-            with self.assertRaises(app.GameError) as unknown:
-                app.create_session("koth_unknown_player_12345", 1_800_100)
-            self.assertEqual(unknown.exception.status, 403)
-            with patch("app.time.monotonic", return_value=time.monotonic() + 60):
-                with self.assertRaises(app.GameError) as stale:
-                    app.create_session(LOCAL_TOKEN, 1_800_100)
-            self.assertEqual(stale.exception.status, 503)
-
-    def test_new_wave_reauthenticates_after_immediate_platform_revocation(self):
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=2_100_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                side_effect=(
-                    None,
-                    app.CapabilityRejected("revoked by RSCTF"),
-                ),
-            ) as authenticate,
-        ):
-            app.publish_managed_context(context)
-            first = app.create_session(LOCAL_TOKEN, 1_800_100)
-            duplicate = app.create_session(LOCAL_TOKEN, 1_800_200)
-            with self.assertRaises(app.GameError) as revoked:
-                app.create_session(LOCAL_TOKEN, 1_860_100)
-
-        self.assertEqual(duplicate["sessionId"], first["sessionId"])
-        self.assertEqual(revoked.exception.status, 403)
-        self.assertEqual(authenticate.call_count, 2)
-
-    def test_cycle_cutoff_rejects_a_partial_final_wave(self):
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=1_800_001,
-            cycle_ends_at=1_880_000,
-            scoring_ends_at=1_859_999,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                return_value=None,
-            ),
-        ):
-            app.publish_managed_context(context)
-            with self.assertRaises(app.GameError) as cutoff:
-                app.create_session(LOCAL_TOKEN, 1_800_100)
-        self.assertEqual(cutoff.exception.status, 409)
-
-        permitted = app.RoundContext(
-            **{**context.__dict__, "opaque": "c" * 64, "scoring_ends_at": 1_860_000}
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                return_value=None,
-            ),
-        ):
-            app.publish_managed_context(permitted)
-            session = app.create_session(LOCAL_TOKEN, 1_800_100)
-        self.assertEqual(session["waveEndsAt"], 1_860_000)
-
-    def test_event_start_rejects_an_initial_partial_wave(self):
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=1_830_000,
-            ends_at=2_000_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=1_860_000,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                return_value=None,
-            ),
-        ):
-            app.publish_managed_context(context)
-            with self.assertRaises(app.GameError) as initial:
-                app.create_session(LOCAL_TOKEN, 1_830_100)
-            session = app.create_session(LOCAL_TOKEN, 1_860_000)
-        self.assertEqual(initial.exception.status, 409)
-        self.assertEqual(session["waveId"], "serpent-1860000")
-
-    def test_request_reader_bounds_headers_and_body_together(self):
-        reader = app._BoundedReader(io.BytesIO(b"a" * 20), 12)
-        self.assertEqual(reader.read(12), b"a" * 12)
-        with self.assertRaises(OSError):
-            reader.read(1)
-
-    def test_health_uses_reserved_capacity_during_slow_player_requests(self):
-        clients = []
-
-        class TinyServer(app.Server):
-            max_workers = 12
-            max_regular_workers = 8
-            max_requests_per_client = 8
-            absolute_request_seconds = 2
-
-        server = TinyServer(("127.0.0.1", 0), app.Handler)
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            for _index in range(8):
-                client = socket.create_connection(server.server_address, timeout=1)
-                client.sendall(
-                    b"POST /api/play HTTP/1.1\r\n"
-                    b"Host: arena\r\n"
-                    b"Content-Type: application/json\r\n"
-                    b"Content-Length: 100\r\n\r\n"
-                    b"{"
-                )
-                clients.append(client)
-            deadline = time.monotonic() + 1
-            while len(server._admissions) < 8 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertEqual(len(server._admissions), 8)
-
-            health = socket.create_connection(server.server_address, timeout=1)
-            health.sendall(b"GET /healthz HTTP/1.1\r\nHost: arena")
-            time.sleep(0.05)
-            health.sendall(b"\r\nConnection: close\r\n\r\n")
-            response = bytearray()
-            while True:
-                chunk = health.recv(4_096)
-                if not chunk:
-                    break
-                response.extend(chunk)
-            health.close()
-            self.assertIn(b"HTTP/1.0 200 OK", response)
-            self.assertIn(b'"status":"ok"', response)
-        finally:
-            for client in clients:
-                client.close()
-            server.shutdown()
-            server.server_close()
             thread.join()
 
-    def test_health_survives_32_trickling_clients_without_tracebacks(self):
-        clients = []
-        errors = io.StringIO()
-
-        class DeadlineServer(app.Server):
-            read_timeout_seconds = 0.25
-            absolute_request_seconds = 0.75
-            classifier_poll_seconds = 0.005
-
-        with redirect_stderr(errors):
-            server = DeadlineServer(("127.0.0.1", 0), app.Handler)
+    def test_http_multiplayer_flow_and_request_shapes(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            server = app.Server(("127.0.0.1", 0), app.Handler)
             thread = Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                for _index in range(32):
-                    client = socket.create_connection(server.server_address, timeout=2)
-                    client.sendall(
-                        b"POST /api/play HTTP/1.1\r\n"
-                        b"Host: arena\r\n"
-                        b"Content-Type: application/json\r\n"
-                        b"Content-Length: 100\r\n\r\n"
-                        b"{"
-                    )
-                    clients.append(client)
-                deadline = time.monotonic() + 2
-                while len(server._admissions) < 32 and time.monotonic() < deadline:
-                    time.sleep(0.01)
-                self.assertEqual(len(server._admissions), 32)
+                status, rules = self.http_json(server, "GET", "/api/rules")
+                self.assertEqual(status, 200)
+                self.assertEqual(rules["minPlayers"], 2)
 
-                for _round in range(2):
-                    time.sleep(0.05)
-                    for client in clients:
-                        try:
-                            client.sendall(b" ")
-                        except OSError:
-                            pass
+                status, host = self.http_json(
+                    server,
+                    "POST",
+                    "/api/rooms",
+                    {"name": "Alice", "token": LOCAL_TOKENS[0]},
+                )
+                self.assertEqual(status, 201)
+                code = host["room"]["code"]
+                status, guest = self.http_json(
+                    server,
+                    "POST",
+                    "/api/rooms/join",
+                    {"name": "Bob", "roomCode": code, "token": LOCAL_TOKENS[1]},
+                )
+                self.assertEqual(status, 201)
+                self.assertEqual(len(guest["room"]["players"]), 2)
 
-                connection = HTTPConnection(*server.server_address, timeout=2)
-                connection.request("GET", "/healthz", headers={"Connection": "close"})
-                response = connection.getresponse()
-                self.assertEqual(response.status, 200)
-                self.assertEqual(json.loads(response.read())["status"], "ok")
-                connection.close()
+                status, malformed = self.http_json(
+                    server,
+                    "POST",
+                    "/api/rooms/state",
+                    {"playerToken": host["playerToken"], "roomCode": code, "extra": True},
+                )
+                self.assertEqual(status, 400)
+                self.assertEqual(malformed, {"error": "unexpected request fields"})
             finally:
-                for client in clients:
-                    try:
-                        client.setsockopt(
-                            socket.SOL_SOCKET,
-                            socket.SO_LINGER,
-                            struct.pack("ii", 1, 0),
-                        )
-                    except OSError:
-                        pass
-                    client.close()
                 server.shutdown()
                 server.server_close()
                 thread.join()
-        self.assertNotIn("Traceback", errors.getvalue())
-
-    def test_deadline_thread_failure_releases_admission(self):
-        server = app.Server(("127.0.0.1", 0), app.Handler)
-        request, peer = socket.socketpair()
-        client = "127.0.0.1"
-        server._request_slots.acquire()
-        server._regular_slots.acquire()
-        with server._client_lock:
-            server._client_requests[client] = 1
-            server._admissions[id(request)] = (
-                client,
-                True,
-                time.monotonic() + 1,
-            )
-        try:
-            with patch.object(
-                http_transport.threading.Timer,
-                "start",
-                side_effect=RuntimeError,
-            ):
-                with self.assertRaises(RuntimeError):
-                    server.process_request_thread(request, (client, 12345))
-            self.assertEqual(server._admissions, {})
-            self.assertEqual(server._client_requests, {})
-            self.assertEqual(server._request_slots._value, app.MAX_HTTP_WORKERS)
-            self.assertEqual(server._regular_slots._value, app.MAX_REGULAR_HTTP_WORKERS)
-        finally:
-            request.close()
-            peer.close()
-            server.server_close()
-
-    def test_aggregate_header_limit_closes_request_and_health_recovers(self):
-        class TinyServer(app.Server):
-            max_pending_requests = 16
-            request_queue_size = 16
-            absolute_request_seconds = 1
-
-        server = TinyServer(("127.0.0.1", 0), app.Handler)
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        client = socket.create_connection(server.server_address, timeout=1)
-        try:
-            client.sendall(
-                b"GET /api/rules HTTP/1.1\r\nHost: arena\r\nX-Fill: "
-                + b"a" * app.MAX_REQUEST_STREAM_BYTES
-                + b"\r\n\r\n"
-            )
-            client.settimeout(1)
-            self.assertEqual(client.recv(1), b"")
-
-            connection = HTTPConnection(*server.server_address, timeout=1)
-            connection.request("GET", "/healthz", headers={"Connection": "close"})
-            response = connection.getresponse()
-            self.assertEqual(response.status, 200)
-            response.read()
-            connection.close()
-        finally:
-            client.close()
-            server.shutdown()
-            server.server_close()
-            thread.join()
-
-    def test_silent_pending_connections_cannot_hide_health(self):
-        class TinyServer(app.Server):
-            max_pending_requests = 8
-            request_queue_size = 32
-            absolute_request_seconds = 1
-            classifier_poll_seconds = 0.01
-
-        class SlowHandler(app.Handler):
-            def do_GET(self):  # noqa: N802 - HTTP handler contract
-                time.sleep(0.1)
-                super().do_GET()
-
-        server = TinyServer(("127.0.0.1", 0), SlowHandler)
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        clients = []
-        try:
-            for _index in range(12):
-                clients.append(socket.create_connection(server.server_address, timeout=1))
-            deadline = time.monotonic() + 1
-            while len(server._pending_requests) < 8 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertEqual(len(server._pending_requests), 8)
-
-            connection = HTTPConnection(*server.server_address, timeout=1)
-            connection.request("GET", "/healthz", headers={"Connection": "close"})
-            response = connection.getresponse()
-            self.assertEqual(response.status, 200)
-            response.read()
-            connection.close()
-        finally:
-            for client in clients:
-                client.close()
-            server.shutdown()
-            server.server_close()
-            thread.join()
-
-    def test_absolute_body_deadline_is_not_extended_by_trickle_bytes(self):
-        class TinyServer(app.Server):
-            max_workers = 4
-            max_regular_workers = 2
-            max_requests_per_client = 2
-            max_pending_requests = 8
-            request_queue_size = 8
-            read_timeout_seconds = 1
-            absolute_request_seconds = 0.25
-            classifier_poll_seconds = 0.01
-
-        server = TinyServer(("127.0.0.1", 0), app.Handler)
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        client = socket.create_connection(server.server_address, timeout=1)
-        started = time.monotonic()
-        try:
-            client.sendall(
-                b"POST /api/play HTTP/1.1\r\n"
-                b"Host: arena\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 100\r\n\r\n{"
-            )
-            while time.monotonic() - started < 0.55:
-                time.sleep(0.04)
-                try:
-                    client.sendall(b" ")
-                except OSError:
-                    break
-            client.settimeout(1)
-            self.assertEqual(client.recv(1), b"")
-            self.assertLess(time.monotonic() - started, 1)
-
-            connection = HTTPConnection(*server.server_address, timeout=1)
-            connection.request("GET", "/healthz", headers={"Connection": "close"})
-            response = connection.getresponse()
-            self.assertEqual(response.status, 200)
-            response.read()
-            connection.close()
-        finally:
-            client.close()
-            server.shutdown()
-            server.server_close()
-            thread.join()
-
-    def test_abrupt_disconnect_releases_all_worker_capacity(self):
-        class TinyServer(app.Server):
-            max_workers = 4
-            max_regular_workers = 2
-            max_requests_per_client = 2
-            max_pending_requests = 8
-            request_queue_size = 8
-            absolute_request_seconds = 1
-            classifier_poll_seconds = 0.01
-
-        class SlowHandler(app.Handler):
-            def do_GET(self):  # noqa: N802 - HTTP handler contract
-                time.sleep(0.1)
-                super().do_GET()
-
-        server = TinyServer(("127.0.0.1", 0), SlowHandler)
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        client = socket.create_connection(server.server_address, timeout=1)
-        try:
-            client.setsockopt(
-                socket.SOL_SOCKET,
-                socket.SO_LINGER,
-                struct.pack("ii", 1, 0),
-            )
-            client.sendall(
-                b"GET /api/rules HTTP/1.1\r\n"
-                b"Host: arena\r\nConnection: close\r\n\r\n"
-            )
-            deadline = time.monotonic() + 1
-            while not server._admissions and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(server._admissions)
-            client.close()
-            deadline = time.monotonic() + 1
-            while (
-                (server._admissions or server._client_requests)
-                and time.monotonic() < deadline
-            ):
-                time.sleep(0.01)
-            self.assertEqual(server._admissions, {})
-            self.assertEqual(server._client_requests, {})
-            self.assertEqual(server._request_slots._value, TinyServer.max_workers)
-            self.assertEqual(
-                server._regular_slots._value,
-                TinyServer.max_regular_workers,
-            )
-        finally:
-            client.close()
-            server.shutdown()
-            server.server_close()
-            thread.join()
-
-    def test_play_samples_authoritative_time_only_after_taking_state_lock(self):
-        timestamp = 1_800_100
-        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
-            session = app.create_session(LOCAL_TOKEN, timestamp)
-        choices = [
-            {"turn": turn["turn"], "choice": 0}
-            for turn in session["turns"]
-        ]
-
-        def locked_now():
-            self.assertTrue(app.state_lock.locked())
-            return session["waveEndsAt"]
-
-        with patch.object(app, "now_ms", side_effect=locked_now):
-            with self.assertRaises(app.GameError) as expired:
-                app.play_session(session["sessionId"], choices)
-        self.assertEqual(expired.exception.status, 410)
-        self.assertEqual(app.read_evidence_page(0)["events"], [])
-
-    def test_capability_bursts_coalesce_and_fake_tokens_stop_at_the_roster(self):
-        token_hash = hashlib.sha256(LOCAL_TOKEN.encode()).hexdigest()
-        context = app.RoundContext(
-            opaque="a" * 64,
-            cycle_number=3,
-            reset_attempt=0,
-            round_number=1,
-            starts_at=0,
-            ends_at=2_000_000,
-            cycle_ends_at=3_000_000,
-            scoring_ends_at=2_980_000,
-            scoring_floor=0,
-            generated_at=app.now_ms(),
-            eligible_hashes=frozenset({token_hash}),
-            objective_ids=(app.OBJECTIVE_ID,),
-            objective_schema_hash="b" * 64,
-        )
-        with (
-            patch.dict(os.environ, MANAGED_ENV, clear=True),
-            patch.object(
-                app.capability_authenticator,
-                "_authenticate_upstream",
-                side_effect=lambda **_kwargs: time.sleep(0.05),
-            ) as authenticate,
-        ):
-            app.publish_managed_context(context)
-            with ThreadPoolExecutor(max_workers=32) as executor:
-                admitted = list(
-                    executor.map(
-                        lambda _index: app.create_session(LOCAL_TOKEN, 1_800_100),
-                        range(32),
-                    )
-                )
-            with ThreadPoolExecutor(max_workers=32) as executor:
-                rejected = list(
-                    executor.map(
-                        lambda index: self._session_status(
-                            f"koth_unknown_{index:08d}",
-                            1_800_100,
-                        ),
-                        range(200),
-                    )
-                )
-        self.assertEqual(len({item["sessionId"] for item in admitted}), 1)
-        self.assertEqual(rejected, [403] * 200)
-        self.assertEqual(len(app.sessions), 1)
-        authenticate.assert_called_once()
 
     @staticmethod
-    def _session_status(token: str, timestamp_ms: int) -> int:
-        try:
-            app.create_session(token, timestamp_ms)
-        except app.GameError as error:
-            return error.status
-        return 201
+    def http_json(server, method, path, value=None):
+        body = None if value is None else json.dumps(value).encode()
+        headers = {"Accept": "application/json", "Connection": "close"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        connection = HTTPConnection(*server.server_address, timeout=2)
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        document = json.loads(response.read())
+        status = response.status
+        connection.close()
+        return status, document
 
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
     def test_browser_server_clock_contract(self):

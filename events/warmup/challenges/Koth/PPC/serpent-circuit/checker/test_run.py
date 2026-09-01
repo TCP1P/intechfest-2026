@@ -20,25 +20,28 @@ VALID_HEALTH = {
     "name": "Serpent Circuit",
     "status": "ok",
     "mode": "managed",
-    "protocol": "serpent-circuit/1",
+    "players": 0,
+    "protocol": "serpent-circuit/2",
     "reporter": {
         "alive": True,
         "consecutiveFailures": 0,
         "state": "ready",
     },
+    "rooms": 0,
     "scoringReady": True,
-    "waveSeconds": 60,
-    "turnCount": 12,
+    "turnSeconds": 30,
 }
 VALID_RULES = {
     "name": "Serpent Circuit",
-    "protocolVersion": 1,
+    "protocolVersion": 2,
     "boardSize": 100,
-    "startPosition": 1,
+    "startPosition": 0,
     "finishPosition": 100,
-    "waveSeconds": 60,
-    "turnCount": 12,
-    "objective": "route-efficiency",
+    "minPlayers": 2,
+    "maxPlayers": 4,
+    "turnSeconds": 30,
+    "scoringWaveSeconds": 60,
+    "objective": "board-progress",
     "transitions": VALID_TRANSITIONS,
     "rules": list(run.EXPECTED_RULES),
 }
@@ -87,12 +90,12 @@ class FakeConnection:
                 raise AssertionError("checker issued an unexpected GET")
         elif method == "POST":
             expected_body = json.dumps(
-                {"token": run.INVALID_PROBE_TOKEN},
+                {"name": "checker", "token": run.INVALID_PROBE_TOKEN},
                 separators=(",", ":"),
                 sort_keys=True,
             ).encode()
             if (
-                path != "/api/session"
+                path != "/api/rooms"
                 or body != expected_body
                 or headers
                 != {
@@ -135,7 +138,7 @@ class SerpentCheckerTests(unittest.TestCase):
         FakeConnection.routes = {
             "/healthz": FakeResponse(VALID_HEALTH),
             "/api/rules": FakeResponse(VALID_RULES),
-            "/api/session": FakeResponse(
+            "/api/rooms": FakeResponse(
                 {"error": "invalid current KotH capability"}, status=403
             ),
         }
@@ -160,7 +163,7 @@ class SerpentCheckerTests(unittest.TestCase):
 
     def test_wrong_contract_returns_mumble(self) -> None:
         invalid = dict(VALID_HEALTH)
-        invalid["protocol"] = "serpent-circuit/2"
+        invalid["protocol"] = "serpent-circuit/1"
         FakeConnection.routes["/healthz"] = FakeResponse(invalid)
         self.assertEqual(self.run_verdict(FakeConnection), 1)
 
@@ -173,7 +176,7 @@ class SerpentCheckerTests(unittest.TestCase):
         }
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/session"] = FakeResponse(
+        FakeConnection.routes["/api/rooms"] = FakeResponse(
             {"error": "the scoring roster is not ready"}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 0)
@@ -214,7 +217,7 @@ class SerpentCheckerTests(unittest.TestCase):
         preactivation = dict(VALID_HEALTH)
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/session"] = FakeResponse(
+        FakeConnection.routes["/api/rooms"] = FakeResponse(
             {"error": "managed gameplay is not configured"}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 1)
@@ -223,13 +226,13 @@ class SerpentCheckerTests(unittest.TestCase):
         preactivation = dict(VALID_HEALTH)
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/session"] = FakeResponse(
+        FakeConnection.routes["/api/rooms"] = FakeResponse(
             {"error": "the scoring roster is not ready", "retry": True}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 1)
 
     def test_unknown_null_capability_response_returns_mumble(self) -> None:
-        FakeConnection.routes["/api/session"] = FakeResponse(None, status=500)
+        FakeConnection.routes["/api/rooms"] = FakeResponse(None, status=500)
         self.assertEqual(self.run_verdict(FakeConnection), 1)
 
     def test_unreachable_service_returns_offline(self) -> None:

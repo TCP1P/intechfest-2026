@@ -1,782 +1,904 @@
-import { makeServerClock, serverNow } from "./clock.mjs";
+import { makeServerClock, serverNow } from "/assets/clock.mjs";
 
-(() => {
-  "use strict";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const SAVED_ROOM_KEY = "serpent-circuit-room-v2";
+const POLL_INTERVAL_MS = 1_000;
+const DIE_FACES = ["?", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+const VALID_COLORS = new Set(["coral", "blue", "green", "purple"]);
 
-  const MAX_RESPONSE_BYTES = 256 * 1024;
-  const REQUEST_TIMEOUT_MS = 10_000;
-  const MAX_BOARD_SIZE = 400;
-  const MAX_TURNS = 64;
+const elements = {
+  board: document.querySelector("#board"),
+  boardSummary: document.querySelector("#board-summary"),
+  capability: document.querySelector("#capability"),
+  copyCode: document.querySelector("#copy-code"),
+  createRoom: document.querySelector("#create-room"),
+  die: document.querySelector("#die"),
+  entryPanel: document.querySelector("#entry-panel"),
+  gameAction: document.querySelector("#game-action"),
+  gamePanel: document.querySelector("#game-panel"),
+  joinRoom: document.querySelector("#join-room"),
+  lastMove: document.querySelector("#last-move"),
+  newRoom: document.querySelector("#new-room"),
+  playerCount: document.querySelector("#player-count"),
+  playerList: document.querySelector("#player-list"),
+  playerName: document.querySelector("#player-name"),
+  reconnectRoom: document.querySelector("#reconnect-room"),
+  roomCode: document.querySelector("#room-code"),
+  roomCodeLabel: document.querySelector("#room-code-label"),
+  roomForm: document.querySelector("#room-form"),
+  roomHelp: document.querySelector("#room-help"),
+  roomTitle: document.querySelector("#room-title"),
+  rulesList: document.querySelector("#rules-list"),
+  runtimeBadge: document.querySelector("#runtime-badge"),
+  status: document.querySelector("#status"),
+  turnCountdown: document.querySelector("#turn-countdown"),
+  turnLabel: document.querySelector("#turn-label"),
+};
 
-  const elements = {
-    acceptanceChip: document.querySelector("#acceptance-chip"),
-    board: document.querySelector("#board"),
-    boardRange: document.querySelector("#board-range"),
-    boardSummary: document.querySelector("#board-summary"),
-    connectionBadge: document.querySelector(".runtime-badge"),
-    connectionState: document.querySelector("#connection-state"),
-    efficiency: document.querySelector("#efficiency"),
-    finalPosition: document.querySelector("#final-position"),
-    finishPosition: document.querySelector("#finish-position"),
-    gameName: document.querySelector("#game-name"),
-    gamePanel: document.querySelector("#game-panel"),
-    joinButton: document.querySelector("#join-button"),
-    joinPanel: document.querySelector("#join-panel"),
-    landingList: document.querySelector("#landing-list"),
-    objective: document.querySelector("#objective"),
-    optimalPosition: document.querySelector("#optimal-position"),
-    playButton: document.querySelector("#play-button"),
-    playForm: document.querySelector("#play-form"),
-    protocolVersion: document.querySelector("#protocol-version"),
-    restartButton: document.querySelector("#restart-button"),
-    resultPanel: document.querySelector("#result-panel"),
-    resultTitle: document.querySelector("#result-title"),
-    rulesList: document.querySelector("#rules-list"),
-    rulesTurnCount: document.querySelector("#rules-turn-count"),
-    status: document.querySelector("#status"),
-    token: document.querySelector("#token"),
-    tokenForm: document.querySelector("#token-form"),
-    transitionList: document.querySelector("#transition-list"),
-    turnCount: document.querySelector("#turn-count"),
-    turnList: document.querySelector("#turn-list"),
-    waveCountdown: document.querySelector("#wave-countdown"),
-    waveId: document.querySelector("#wave-id"),
-    waveSeconds: document.querySelector("#wave-seconds"),
-    waveTitle: document.querySelector("#wave-title"),
+const state = {
+  busy: false,
+  clock: null,
+  lastAnnouncement: "",
+  playerToken: null,
+  pollTimer: null,
+  polling: false,
+  room: null,
+  roomCode: null,
+  rules: null,
+};
+
+function setStatus(message, tone = "neutral") {
+  elements.status.textContent = message;
+  elements.status.dataset.tone = tone;
+}
+
+function integer(value, label, minimum, maximum) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`The server returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function boundedString(value, label, maximum = 128) {
+  if (typeof value !== "string" || value.length < 1 || value.length > maximum) {
+    throw new Error(`The server returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function normalizeRules(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("The server returned invalid game rules.");
+  }
+  const expected = [
+    "boardSize",
+    "finishPosition",
+    "maxPlayers",
+    "minPlayers",
+    "name",
+    "objective",
+    "protocolVersion",
+    "rules",
+    "scoringWaveSeconds",
+    "startPosition",
+    "transitions",
+    "turnSeconds",
+  ];
+  if (Object.keys(raw).sort().join("|") !== expected.sort().join("|")) {
+    throw new Error("The server returned a different game contract.");
+  }
+  if (
+    raw.name !== "Serpent Circuit"
+    || raw.objective !== "board-progress"
+    || raw.protocolVersion !== 2
+    || raw.boardSize !== 100
+    || raw.startPosition !== 0
+    || raw.finishPosition !== 100
+    || raw.minPlayers !== 2
+    || raw.maxPlayers !== 4
+    || raw.turnSeconds !== 30
+    || raw.scoringWaveSeconds !== 60
+  ) {
+    throw new Error("The server returned a different Serpent Circuit contract.");
+  }
+  if (!Array.isArray(raw.rules) || raw.rules.length !== 6) {
+    throw new Error("The server returned invalid game instructions.");
+  }
+  const origins = new Set();
+  const transitions = raw.transitions.map((transition) => {
+    if (
+      !transition
+      || typeof transition !== "object"
+      || Array.isArray(transition)
+      || Object.keys(transition).sort().join("|") !== "from|kind|to"
+    ) {
+      throw new Error("The server returned an invalid board transition.");
+    }
+    const from = integer(transition.from, "transition origin", 2, 99);
+    const to = integer(transition.to, "transition destination", 2, 99);
+    if (
+      origins.has(from)
+      || (transition.kind !== "ladder" && transition.kind !== "snake")
+      || (transition.kind === "ladder" && to <= from)
+      || (transition.kind === "snake" && to >= from)
+    ) {
+      throw new Error("The server returned an impossible board transition.");
+    }
+    origins.add(from);
+    return { from, kind: transition.kind, to };
+  });
+  if (transitions.length !== 14) {
+    throw new Error("The server returned the wrong board.");
+  }
+  return { ...raw, transitions };
+}
+
+function normalizePlayer(raw) {
+  if (
+    !raw
+    || typeof raw !== "object"
+    || Array.isArray(raw)
+    || Object.keys(raw).sort().join("|") !== "color|id|isHost|name|position"
+  ) {
+    throw new Error("The server returned an invalid player.");
+  }
+  const color = boundedString(raw.color, "player color", 16);
+  if (!VALID_COLORS.has(color) || typeof raw.isHost !== "boolean") {
+    throw new Error("The server returned invalid player metadata.");
+  }
+  return {
+    color,
+    id: boundedString(raw.id, "player ID"),
+    isHost: raw.isHost,
+    name: boundedString(raw.name, "player name", 48),
+    position: integer(raw.position, "player position", 0, 100),
   };
+}
 
-  const state = {
-    countdownTimer: null,
-    expired: false,
-    rules: null,
-    serverClock: null,
-    session: null,
-    submitting: false,
+function normalizeLastMove(raw, playerIds) {
+  if (raw === null) {
+    return null;
+  }
+  if (
+    !raw
+    || typeof raw !== "object"
+    || Array.isArray(raw)
+    || Object.keys(raw).sort().join("|")
+      !== "automatic|extraTurn|from|playerId|roll|to|transportFrom|transportTo"
+    || typeof raw.automatic !== "boolean"
+    || typeof raw.extraTurn !== "boolean"
+  ) {
+    throw new Error("The server returned an invalid last move.");
+  }
+  const playerId = boundedString(raw.playerId, "moving player ID");
+  if (!playerIds.has(playerId)) {
+    throw new Error("The server returned a move for an unknown player.");
+  }
+  const transportFrom = raw.transportFrom === null
+    ? null
+    : integer(raw.transportFrom, "transport origin", 2, 99);
+  const transportTo = raw.transportTo === null
+    ? null
+    : integer(raw.transportTo, "transport destination", 2, 99);
+  if ((transportFrom === null) !== (transportTo === null)) {
+    throw new Error("The server returned an incomplete transport.");
+  }
+  return {
+    automatic: raw.automatic,
+    extraTurn: raw.extraTurn,
+    from: integer(raw.from, "move origin", 0, 100),
+    playerId,
+    roll: integer(raw.roll, "die roll", 1, 6),
+    to: integer(raw.to, "move destination", 0, 100),
+    transportFrom,
+    transportTo,
   };
+}
 
-  function setStatus(message, tone = "info") {
-    elements.status.textContent = message;
-    elements.status.dataset.tone = tone;
+function normalizeRoom(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("The server returned invalid room state.");
   }
-
-  function setConnection(label, connectionState) {
-    elements.connectionState.textContent = label;
-    elements.connectionBadge.dataset.state = connectionState;
+  const expected = [
+    "code",
+    "currentPlayerId",
+    "lastMove",
+    "maxPlayers",
+    "minPlayers",
+    "players",
+    "scoreStatus",
+    "serverTime",
+    "status",
+    "turnDeadline",
+    "turnNumber",
+    "winnerId",
+    "you",
+  ];
+  if (Object.keys(raw).sort().join("|") !== expected.sort().join("|")) {
+    throw new Error("The server returned a different room contract.");
   }
-
-  function setButtonBusy(button, busy, busyLabel, idleLabel) {
-    button.disabled = busy;
-    button.textContent = busy ? busyLabel : idleLabel;
+  if (
+    typeof raw.code !== "string"
+    || !/^[A-HJ-NP-Z2-9]{6}$/.test(raw.code)
+    || !["lobby", "playing", "finished"].includes(raw.status)
+    || raw.minPlayers !== 2
+    || raw.maxPlayers !== 4
+    || !Array.isArray(raw.players)
+    || raw.players.length < 1
+    || raw.players.length > 4
+    || !raw.you
+    || typeof raw.you !== "object"
+    || Object.keys(raw.you).join("|") !== "id"
+  ) {
+    throw new Error("The server returned invalid room metadata.");
   }
-
-  function assertInteger(value, label, minimum, maximum) {
-    if (!Number.isInteger(value) || value < minimum || value > maximum) {
-      throw new Error(`The server returned an invalid ${label}.`);
-    }
-    return value;
+  const players = raw.players.map(normalizePlayer);
+  const ids = new Set(players.map((player) => player.id));
+  if (ids.size !== players.length || !ids.has(raw.you.id)) {
+    throw new Error("The server returned an invalid room roster.");
   }
-
-  function boundedString(value, label, maximum = 512) {
-    if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
-      throw new Error(`The server returned an invalid ${label}.`);
-    }
-    return value;
+  const currentPlayerId = raw.currentPlayerId === null
+    ? null
+    : boundedString(raw.currentPlayerId, "current player ID");
+  const winnerId = raw.winnerId === null
+    ? null
+    : boundedString(raw.winnerId, "winner ID");
+  if (
+    (currentPlayerId !== null && !ids.has(currentPlayerId))
+    || (winnerId !== null && !ids.has(winnerId))
+    || (raw.status === "playing" && currentPlayerId === null)
+    || (raw.status !== "playing" && currentPlayerId !== null)
+    || (raw.status !== "finished" && winnerId !== null)
+  ) {
+    throw new Error("The server returned an inconsistent match state.");
   }
-
-  function boundedIdentifier(value, label, maximum = 128) {
-    if (
-      (typeof value !== "string" && typeof value !== "number")
-      || (typeof value === "number" && !Number.isFinite(value))
-    ) {
-      throw new Error(`The server returned an invalid ${label}.`);
-    }
-    return boundedString(String(value), label, maximum);
+  const turnDeadline = raw.turnDeadline === null
+    ? null
+    : integer(raw.turnDeadline, "turn deadline", 0, Number.MAX_SAFE_INTEGER);
+  if ((raw.status === "playing") !== (turnDeadline !== null)) {
+    throw new Error("The server returned an inconsistent turn deadline.");
   }
+  return {
+    ...raw,
+    currentPlayerId,
+    lastMove: normalizeLastMove(raw.lastMove, ids),
+    players,
+    serverTime: integer(raw.serverTime, "server time", 0, Number.MAX_SAFE_INTEGER),
+    turnDeadline,
+    turnNumber: integer(raw.turnNumber, "turn number", 0, 1_000),
+    winnerId,
+    you: { id: boundedString(raw.you.id, "local player ID") },
+  };
+}
 
-  async function requestJson(path, options = {}) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(path, {
-        ...options,
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: {
-          Accept: "application/json",
-          ...(options.body ? { "Content-Type": "application/json" } : {}),
-          ...(options.headers || {}),
-        },
-        signal: controller.signal,
-      });
-
-      const text = await response.text();
-      if (text.length > MAX_RESPONSE_BYTES) {
-        throw new Error("The server response was larger than the client accepts.");
-      }
-
-      let body = null;
-      if (text.length > 0) {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          throw new Error("The server returned malformed JSON.");
-        }
-      }
-
-      if (!response.ok) {
-        const serverMessage = body && typeof body === "object"
-          ? body.error || body.message
-          : null;
-        throw new Error(
-          typeof serverMessage === "string" && serverMessage.length <= 240
-            ? serverMessage
-            : `The server rejected the request (HTTP ${response.status}).`,
-        );
-      }
-
-      if (body === null || typeof body !== "object" || Array.isArray(body)) {
-        throw new Error("The server returned an unexpected response.");
-      }
-
-      return body;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error("The game server did not answer in time.");
-      }
-      throw error;
-    } finally {
-      window.clearTimeout(timeout);
-    }
+async function requestJson(path, body = null) {
+  const sent = performance.now();
+  const options = {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  };
+  if (body !== null) {
+    options.method = "POST";
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
   }
-
-  function normalizeRules(raw) {
-    const boardSize = assertInteger(raw.boardSize, "board size", 2, MAX_BOARD_SIZE);
-    const startPosition = assertInteger(raw.startPosition, "start position", 0, boardSize);
-    const finishPosition = assertInteger(raw.finishPosition, "finish position", 1, boardSize);
-    const turnCount = assertInteger(raw.turnCount, "turn count", 1, MAX_TURNS);
-    const waveSeconds = assertInteger(raw.waveSeconds, "wave length", 1, 86_400);
-
-    if (
-      raw.name !== "Serpent Circuit"
-      || raw.objective !== "route-efficiency"
-      || raw.protocolVersion !== 1
-      || boardSize !== 100
-      || startPosition !== 1
-      || finishPosition !== 100
-      || turnCount !== 12
-      || waveSeconds !== 60
-    ) {
-      throw new Error("The server returned a different Serpent Circuit contract.");
-    }
-    if (!Array.isArray(raw.transitions) || raw.transitions.length > boardSize) {
-      throw new Error("The server returned an invalid transition list.");
-    }
-    if (!Array.isArray(raw.rules) || raw.rules.length > 32) {
-      throw new Error("The server returned an invalid rules list.");
-    }
-
-    const seenTransitionStarts = new Set();
-    const transitions = raw.transitions.map((transition) => {
-      if (!transition || typeof transition !== "object" || Array.isArray(transition)) {
-        throw new Error("The server returned an invalid board transition.");
-      }
-      const from = assertInteger(transition.from, "transition start", 1, boardSize);
-      const to = assertInteger(transition.to, "transition end", 1, boardSize);
-      const kind = boundedString(transition.kind, "transition kind", 32).toLowerCase();
-      if (from === to || seenTransitionStarts.has(from)) {
-        throw new Error("The server returned an ambiguous board transition.");
-      }
-      seenTransitionStarts.add(from);
-      return { from, to, kind };
-    });
-
-    const rules = raw.rules.map((rule) => boundedString(rule, "rule", 360));
-
-    return {
-      boardSize,
-      finishPosition,
-      name: boundedString(raw.name, "game name", 120),
-      objective: boundedString(raw.objective, "objective", 600),
-      protocolVersion: boundedIdentifier(raw.protocolVersion, "protocol version", 64),
-      rules,
-      startPosition,
-      transitions,
-      turnCount,
-      waveSeconds,
-    };
+  const response = await fetch(path, options);
+  const received = performance.now();
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    throw new Error("The game server returned an unexpected response.");
   }
-
-  function normalizeHealth(raw) {
-    return {
-      mode: boundedString(raw.mode, "runtime mode", 64),
-    };
+  const raw = await response.text();
+  if (raw.length > 64 * 1024) {
+    throw new Error("The game server response was too large.");
   }
-
-  function normalizeWaveEnd(value) {
-    if (Number.isSafeInteger(value) && value >= 0) {
-      return value;
-    }
-    throw new Error("The server returned an invalid wave deadline.");
+  let document;
+  try {
+    document = JSON.parse(raw);
+  } catch {
+    throw new Error("The game server returned malformed JSON.");
   }
-
-  function normalizeSession(raw) {
-    if (!Array.isArray(raw.turns) || raw.turns.length < 1 || raw.turns.length > MAX_TURNS) {
-      throw new Error("The server returned an invalid turn list.");
-    }
-
-    const seenTurns = new Set();
-    const turns = raw.turns.map((turn) => {
-      if (!turn || typeof turn !== "object" || Array.isArray(turn)) {
-        throw new Error("The server returned an invalid turn.");
-      }
-      const turnNumber = assertInteger(turn.turn, "turn number", 1, MAX_TURNS);
-      if (seenTurns.has(turnNumber) || !Array.isArray(turn.options) || turn.options.length !== 2) {
-        throw new Error("The server returned an ambiguous turn.");
-      }
-      seenTurns.add(turnNumber);
-      const options = turn.options.map((option) => assertInteger(option, "dice choice", 1, 64));
-      return { options, turn: turnNumber };
-    });
-
-    turns.sort((left, right) => left.turn - right.turn);
-    if (turns.some((turn, index) => turn.turn !== index + 1)) {
-      throw new Error("The server returned turns outside the required order.");
-    }
-    const serverTime = assertInteger(
-      raw.serverTime,
-      "server time",
-      0,
-      Number.MAX_SAFE_INTEGER,
-    );
-    const waveEndsAt = normalizeWaveEnd(raw.waveEndsAt);
-    if (
-      !state.rules
-      || waveEndsAt <= serverTime
-      || waveEndsAt - serverTime > state.rules.waveSeconds * 1000
-    ) {
-      throw new Error("The server returned an impossible wave deadline.");
-    }
-    return {
-      serverTime,
-      sessionId: boundedString(raw.sessionId, "session ID", 256),
-      turns,
-      waveEndsAt,
-      waveId: boundedIdentifier(raw.waveId, "wave ID"),
-    };
+  if (!response.ok) {
+    const message = document && typeof document.error === "string"
+      ? document.error
+      : `Request failed with HTTP ${response.status}.`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
+  return { document, received, sent };
+}
 
-  function normalizeResult(raw) {
-    if (typeof raw.accepted !== "boolean") {
-      throw new Error("The server returned an invalid acceptance verdict.");
-    }
-    if (!raw.efficiency || typeof raw.efficiency !== "object" || Array.isArray(raw.efficiency)) {
-      throw new Error("The server returned invalid efficiency evidence.");
-    }
-    if (!Array.isArray(raw.landings) || raw.landings.length > MAX_TURNS) {
-      throw new Error("The server returned an invalid landing list.");
-    }
+function boardCoordinates(position) {
+  const index = position - 1;
+  const rowFromBottom = Math.floor(index / 10);
+  const offset = index % 10;
+  const column = rowFromBottom % 2 === 0 ? offset : 9 - offset;
+  return {
+    x: column * 100 + 50,
+    y: (9 - rowFromBottom) * 100 + 50,
+  };
+}
 
-    const boardSize = state.rules.boardSize;
-    const landings = raw.landings.map((landing) => {
-      if (!landing || typeof landing !== "object" || Array.isArray(landing)) {
-        throw new Error("The server returned an invalid landing.");
-      }
-      const normalized = {
-        from: assertInteger(landing.from, "landing origin", 0, boardSize),
-        roll: assertInteger(landing.roll, "confirmed roll", 1, 64),
-        to: assertInteger(landing.to, "landing destination", 0, boardSize),
-        turn: assertInteger(landing.turn, "landing turn", 1, MAX_TURNS),
-        transportFrom: landing.transportFrom,
-        transportTo: landing.transportTo,
-      };
-
-      const hasTransport = landing.transportFrom !== null && landing.transportFrom !== undefined;
-      if (hasTransport !== (landing.transportTo !== null && landing.transportTo !== undefined)) {
-        throw new Error("The server returned incomplete transition evidence.");
-      }
-      if (hasTransport) {
-        normalized.transportFrom = assertInteger(
-          landing.transportFrom,
-          "transition origin",
-          1,
-          boardSize,
-        );
-        normalized.transportTo = assertInteger(
-          landing.transportTo,
-          "transition destination",
-          1,
-          boardSize,
-        );
-      } else {
-        normalized.transportFrom = null;
-        normalized.transportTo = null;
-      }
-      return normalized;
-    });
-
-    const earned = raw.efficiency.earned;
-    const possible = raw.efficiency.possible;
-    if (
-      !Number.isInteger(earned)
-      || !Number.isInteger(possible)
-      || earned < 0
-      || possible < 1
-      || earned > possible
-    ) {
-      throw new Error("The server returned invalid efficiency evidence.");
-    }
-    if (
-      !state.session
-      || landings.length !== state.session.turns.length
-      || landings.some((landing, index) => landing.turn !== index + 1)
-    ) {
-      throw new Error("The server returned incomplete or unordered landing evidence.");
-    }
-
-    return {
-      accepted: raw.accepted,
-      efficiency: { earned, possible },
-      finalPosition: assertInteger(raw.finalPosition, "final position", 0, boardSize),
-      landings,
-      optimalPosition: assertInteger(raw.optimalPosition, "optimal position", 0, boardSize),
-      waveId: boundedIdentifier(raw.waveId, "wave ID"),
-    };
+function svgElement(name, attributes = {}) {
+  const node = document.createElementNS(SVG_NAMESPACE, name);
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, String(value));
   }
+  return node;
+}
 
-  function boardPositions(boardSize, columns) {
-    const rows = Math.ceil(boardSize / columns);
-    const positions = [];
+function renderLadder(layer, transition) {
+  const start = boardCoordinates(transition.from);
+  const end = boardCoordinates(transition.to);
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  const perpendicularX = (-dy / length) * 12;
+  const perpendicularY = (dx / length) * 12;
+  const group = svgElement("g", { class: "ladder-art" });
+  group.append(
+    svgElement("line", {
+      x1: start.x + perpendicularX,
+      y1: start.y + perpendicularY,
+      x2: end.x + perpendicularX,
+      y2: end.y + perpendicularY,
+    }),
+    svgElement("line", {
+      x1: start.x - perpendicularX,
+      y1: start.y - perpendicularY,
+      x2: end.x - perpendicularX,
+      y2: end.y - perpendicularY,
+    }),
+  );
+  for (let step = 1; step < 7; step += 1) {
+    const ratio = step / 7;
+    const x = start.x + dx * ratio;
+    const y = start.y + dy * ratio;
+    group.append(svgElement("line", {
+      class: "ladder-rung",
+      x1: x + perpendicularX,
+      y1: y + perpendicularY,
+      x2: x - perpendicularX,
+      y2: y - perpendicularY,
+    }));
+  }
+  layer.append(group);
+}
 
-    for (let visualRow = 0; visualRow < rows; visualRow += 1) {
-      const logicalRow = rows - visualRow - 1;
-      const first = logicalRow * columns + 1;
-      const last = Math.min(first + columns - 1, boardSize);
-      const row = [];
-      for (let position = first; position <= last; position += 1) {
-        row.push(position);
-      }
-      if (logicalRow % 2 === 1) {
-        row.reverse();
-      }
-      positions.push(...row);
+function renderSnake(layer, transition) {
+  const head = boardCoordinates(transition.from);
+  const tail = boardCoordinates(transition.to);
+  const dx = tail.x - head.x;
+  const dy = tail.y - head.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const bendX = (-dy / length) * Math.min(58, length / 4);
+  const bendY = (dx / length) * Math.min(58, length / 4);
+  const path = [
+    `M ${head.x} ${head.y}`,
+    `C ${head.x + dx * 0.25 + bendX} ${head.y + dy * 0.25 + bendY},`,
+    `${head.x + dx * 0.5 - bendX} ${head.y + dy * 0.5 - bendY},`,
+    `${head.x + dx * 0.68} ${head.y + dy * 0.68}`,
+    `S ${tail.x - bendX * 0.35} ${tail.y - bendY * 0.35}, ${tail.x} ${tail.y}`,
+  ].join(" ");
+  const group = svgElement("g", { class: "snake-art" });
+  group.append(
+    svgElement("path", { class: "snake-shadow", d: path }),
+    svgElement("path", { class: "snake-body", d: path }),
+    svgElement("circle", { class: "snake-head", cx: head.x, cy: head.y, r: 17 }),
+    svgElement("circle", { class: "snake-eye", cx: head.x - 5, cy: head.y - 3, r: 2.5 }),
+    svgElement("circle", { class: "snake-eye", cx: head.x + 5, cy: head.y - 3, r: 2.5 }),
+  );
+  layer.append(group);
+}
+
+function buildBoard() {
+  elements.board.textContent = "";
+  for (let visualRow = 9; visualRow >= 0; visualRow -= 1) {
+    const numbers = Array.from({ length: 10 }, (_unused, index) => visualRow * 10 + index + 1);
+    if (visualRow % 2 === 1) {
+      numbers.reverse();
     }
-
-    return positions;
-  }
-
-  function transitionLabel(transition) {
-    const direction = transition.to > transition.from ? "Boost" : "Serpent";
-    const suppliedKind = transition.kind.replace(/[-_]+/g, " ");
-    const kind = suppliedKind === "ladder" || suppliedKind === "boost"
-      ? "Boost"
-      : suppliedKind === "snake" || suppliedKind === "serpent" || suppliedKind === "drop"
-        ? "Serpent"
-        : `${direction} (${suppliedKind})`;
-    return `${kind} from ${transition.from} to ${transition.to}`;
-  }
-
-  function renderBoard(lastPosition = null) {
-    const rules = state.rules;
-    const columns = Math.max(2, Math.ceil(Math.sqrt(rules.boardSize)));
-    const transitionByStart = new Map(rules.transitions.map((item) => [item.from, item]));
-    const fragment = document.createDocumentFragment();
-
-    elements.board.replaceChildren();
-    boardPositions(rules.boardSize, columns).forEach((position) => {
+    for (const number of numbers) {
       const cell = document.createElement("div");
-      const number = document.createElement("span");
-      const icon = document.createElement("span");
-      const transition = transitionByStart.get(position);
+      cell.className = `board-cell board-tone-${(number - 1) % 4}`;
+      cell.dataset.position = String(number);
+      cell.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.className = "cell-number";
+      label.textContent = String(number);
+      cell.append(label);
+      elements.board.append(cell);
+    }
+  }
+  const layer = svgElement("svg", {
+    "aria-hidden": "true",
+    class: "transition-layer",
+    preserveAspectRatio: "none",
+    viewBox: "0 0 1000 1000",
+  });
+  for (const transition of state.rules.transitions) {
+    if (transition.kind === "ladder") {
+      renderLadder(layer, transition);
+    } else {
+      renderSnake(layer, transition);
+    }
+  }
+  elements.board.append(layer);
+}
 
-      cell.className = "board-cell";
-      number.className = "board-number";
-      number.textContent = String(position);
-      icon.className = "board-icon";
-      cell.append(number, icon);
+function playerById(playerId) {
+  return state.room?.players.find((player) => player.id === playerId) || null;
+}
 
-      if (transition) {
-        const isBoost = transition.to > transition.from;
-        cell.classList.add(isBoost ? "is-boost" : "is-drop");
-        icon.textContent = isBoost ? "↗" : "↘";
-      }
-      if (position === rules.startPosition) {
-        icon.textContent = "S";
-      }
-      if (position === rules.finishPosition) {
-        icon.textContent = "F";
-      }
-      if (position === lastPosition) {
-        cell.classList.add("is-player");
-        icon.textContent = "◆";
-      }
+function playerLabel(player) {
+  const suffix = player.id === state.room.you.id ? " (you)" : "";
+  return `${player.name}${suffix}`;
+}
 
-      fragment.append(cell);
-    });
+function renderPieces() {
+  for (const existing of elements.board.querySelectorAll(".piece")) {
+    existing.remove();
+  }
+  if (!state.room) {
+    return;
+  }
+  const summaries = [];
+  for (const [index, player] of state.room.players.entries()) {
+    summaries.push(`${playerLabel(player)} is ${player.position === 0 ? "at Start" : `on square ${player.position}`}`);
+    if (player.position === 0) {
+      continue;
+    }
+    const cell = elements.board.querySelector(`[data-position="${player.position}"]`);
+    if (!cell) {
+      continue;
+    }
+    const piece = document.createElement("span");
+    piece.className = `piece piece-${player.color}`;
+    piece.textContent = String(index + 1);
+    piece.setAttribute("aria-hidden", "true");
+    cell.append(piece);
+  }
+  elements.boardSummary.textContent = summaries.join(". ");
+}
 
-    elements.board.append(fragment);
-    elements.boardRange.textContent = `${rules.startPosition} → ${rules.finishPosition}`;
-    elements.board.setAttribute(
-      "aria-label",
-      lastPosition === null
-        ? `Circuit board from position ${rules.startPosition} to ${rules.finishPosition}.`
-        : `Circuit board from position ${rules.startPosition} to ${rules.finishPosition}. The last confirmed landing is ${lastPosition}.`,
+function renderPlayers() {
+  elements.playerList.textContent = "";
+  elements.playerCount.textContent = `${state.room.players.length}/${state.room.maxPlayers}`;
+  for (const [index, player] of state.room.players.entries()) {
+    const item = document.createElement("li");
+    item.className = "player-item";
+    if (player.id === state.room.currentPlayerId) {
+      item.classList.add("is-current");
+    }
+    if (player.id === state.room.winnerId) {
+      item.classList.add("is-winner");
+    }
+    const marker = document.createElement("span");
+    marker.className = `player-marker piece-${player.color}`;
+    marker.textContent = String(index + 1);
+    marker.setAttribute("aria-hidden", "true");
+    const details = document.createElement("span");
+    details.className = "player-details";
+    const name = document.createElement("strong");
+    name.textContent = playerLabel(player);
+    const role = document.createElement("small");
+    const tags = [];
+    if (player.isHost) tags.push("Host");
+    if (player.id === state.room.currentPlayerId) tags.push("Current turn");
+    if (player.id === state.room.winnerId) tags.push("Winner");
+    role.textContent = tags.join(" · ") || "Player";
+    details.append(name, role);
+    const position = document.createElement("span");
+    position.className = "player-position";
+    position.textContent = player.position === 0 ? "Start" : String(player.position);
+    position.setAttribute("aria-label", player.position === 0 ? "At start" : `Square ${player.position}`);
+    item.append(marker, details, position);
+    elements.playerList.append(item);
+  }
+}
+
+function describeLastMove() {
+  const move = state.room.lastMove;
+  if (!move) {
+    return "No rolls yet. The host starts when everyone is ready.";
+  }
+  const player = playerById(move.playerId);
+  const name = player ? playerLabel(player) : "A player";
+  let description = `${name} ${move.automatic ? "auto-rolled" : "rolled"} ${move.roll}`;
+  if (move.from === move.to && move.from + move.roll > state.rules.finishPosition) {
+    description += ` and stayed on ${move.to} because the roll overshot 100`;
+  } else {
+    description += ` and moved from ${move.from === 0 ? "Start" : move.from} to ${move.to}`;
+  }
+  if (move.transportFrom !== null) {
+    description += move.transportTo > move.transportFrom
+      ? `, climbing the ladder from ${move.transportFrom} to ${move.transportTo}`
+      : `, sliding down the snake from ${move.transportFrom} to ${move.transportTo}`;
+  }
+  if (move.extraTurn) {
+    description += ". A six earns another turn";
+  }
+  return `${description}.`;
+}
+
+function renderTurn() {
+  const room = state.room;
+  const you = playerById(room.you.id);
+  const host = room.players.find((player) => player.isHost);
+  elements.newRoom.hidden = room.status !== "finished";
+
+  if (room.status === "lobby") {
+    elements.die.textContent = "?";
+    elements.turnCountdown.textContent = room.players.length >= room.minPlayers
+      ? `${room.players.length} players ready`
+      : `${room.players.length} of ${room.minPlayers} joined`;
+    if (you.isHost) {
+      const ready = room.players.length >= room.minPlayers;
+      elements.turnLabel.textContent = ready ? "Everyone ready?" : "Waiting for more players";
+      elements.gameAction.textContent = ready ? "Start match" : "Waiting for players";
+      elements.gameAction.disabled = !ready || state.busy;
+    } else {
+      elements.turnLabel.textContent = `Waiting for ${host.name} to start`;
+      elements.gameAction.textContent = "Waiting for host";
+      elements.gameAction.disabled = true;
+    }
+    return;
+  }
+
+  if (room.status === "finished") {
+    const winner = room.winnerId ? playerById(room.winnerId) : null;
+    elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "—";
+    elements.turnCountdown.textContent = room.scoreStatus === "recorded"
+      ? "Result recorded"
+      : "Match complete";
+    elements.turnLabel.textContent = winner ? `${playerLabel(winner)} wins!` : "Match ended in a draw";
+    elements.gameAction.textContent = "Game over";
+    elements.gameAction.disabled = true;
+    return;
+  }
+
+  const current = playerById(room.currentPlayerId);
+  const isYourTurn = current.id === room.you.id;
+  elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "?";
+  elements.turnLabel.textContent = isYourTurn
+    ? "Your turn — roll the dice"
+    : `${current.name}'s turn`;
+  elements.gameAction.textContent = isYourTurn ? "Roll dice" : "Waiting for roll";
+  elements.gameAction.disabled = !isYourTurn || state.busy;
+}
+
+function renderCountdown() {
+  if (!state.room || state.room.status !== "playing" || !state.clock) {
+    return;
+  }
+  let remaining;
+  try {
+    remaining = Math.max(0, state.room.turnDeadline - serverNow(state.clock, performance.now()));
+  } catch {
+    elements.turnCountdown.textContent = "Syncing timer…";
+    return;
+  }
+  elements.turnCountdown.textContent = `${Math.ceil(remaining / 1_000)}s remaining`;
+}
+
+function renderRoom() {
+  const room = state.room;
+  elements.roomCodeLabel.textContent = room.code;
+  elements.roomHelp.textContent = room.status === "lobby"
+    ? "Share this code so friends can join."
+    : `Turn ${room.turnNumber} · server-authoritative match`;
+  renderPlayers();
+  renderPieces();
+  renderTurn();
+  renderCountdown();
+
+  const announcement = describeLastMove();
+  elements.lastMove.textContent = announcement;
+  if (announcement !== state.lastAnnouncement && room.lastMove) {
+    state.lastAnnouncement = announcement;
+  }
+}
+
+function saveSeat() {
+  try {
+    localStorage.setItem(SAVED_ROOM_KEY, JSON.stringify({
+      playerToken: state.playerToken,
+      roomCode: state.roomCode,
+    }));
+  } catch {
+    // The in-memory seat remains playable when storage is unavailable.
+  }
+}
+
+function savedSeat() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SAVED_ROOM_KEY) || "null");
+    if (
+      parsed
+      && typeof parsed.playerToken === "string"
+      && parsed.playerToken.length >= 16
+      && typeof parsed.roomCode === "string"
+      && /^[A-HJ-NP-Z2-9]{6}$/.test(parsed.roomCode)
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore corrupt or unavailable browser storage.
+  }
+  return null;
+}
+
+function clearSeat() {
+  state.playerToken = null;
+  state.roomCode = null;
+  state.room = null;
+  state.clock = null;
+  state.lastAnnouncement = "";
+  try {
+    localStorage.removeItem(SAVED_ROOM_KEY);
+  } catch {
+    // Nothing else needs clearing.
+  }
+}
+
+function showEntry() {
+  stopPolling();
+  elements.entryPanel.hidden = false;
+  elements.gamePanel.hidden = true;
+  elements.newRoom.hidden = true;
+  elements.playerName.focus();
+  const saved = savedSeat();
+  elements.reconnectRoom.hidden = saved === null;
+  if (saved) {
+    elements.reconnectRoom.textContent = `Reconnect to room ${saved.roomCode}`;
+  }
+}
+
+function showGame() {
+  elements.entryPanel.hidden = true;
+  elements.gamePanel.hidden = false;
+  elements.roomTitle.focus();
+  startPolling();
+}
+
+function applyRoom(raw, sent, received) {
+  const room = normalizeRoom(raw);
+  if (state.roomCode && room.code !== state.roomCode) {
+    throw new Error("The server returned state for a different room.");
+  }
+  state.roomCode = room.code;
+  state.clock = makeServerClock(room.serverTime, sent, received);
+  state.room = room;
+  renderRoom();
+}
+
+function normalizeSeatResponse(raw) {
+  if (
+    !raw
+    || typeof raw !== "object"
+    || Array.isArray(raw)
+    || Object.keys(raw).sort().join("|") !== "playerToken|room"
+  ) {
+    throw new Error("The server returned an invalid room seat.");
+  }
+  return {
+    playerToken: boundedString(raw.playerToken, "room player token"),
+    room: raw.room,
+  };
+}
+
+function formValues(requireCode) {
+  const name = elements.playerName.value.trim();
+  const token = elements.capability.value.trim();
+  const roomCode = elements.roomCode.value.trim().toUpperCase();
+  elements.playerName.setAttribute("aria-invalid", name ? "false" : "true");
+  elements.capability.setAttribute("aria-invalid", token ? "false" : "true");
+  elements.roomCode.setAttribute(
+    "aria-invalid",
+    !requireCode || /^[A-HJ-NP-Z2-9]{6}$/.test(roomCode) ? "false" : "true",
+  );
+  if (!name || !token) {
+    throw new Error("Enter a display name and your current KotH capability.");
+  }
+  if (requireCode && !/^[A-HJ-NP-Z2-9]{6}$/.test(roomCode)) {
+    throw new Error("Enter the six-character room code from the host.");
+  }
+  return { name, roomCode, token };
+}
+
+async function enterRoom(kind) {
+  if (state.busy) return;
+  try {
+    const values = formValues(kind === "join");
+    state.busy = true;
+    elements.createRoom.disabled = true;
+    elements.joinRoom.disabled = true;
+    setStatus(kind === "create" ? "Creating your private room…" : "Joining the room…");
+    const path = kind === "create" ? "/api/rooms" : "/api/rooms/join";
+    const body = kind === "create"
+      ? { name: values.name, token: values.token }
+      : { name: values.name, roomCode: values.roomCode, token: values.token };
+    const response = await requestJson(path, body);
+    const seat = normalizeSeatResponse(response.document);
+    state.playerToken = seat.playerToken;
+    state.roomCode = seat.room.code;
+    elements.capability.value = "";
+    applyRoom(seat.room, response.sent, response.received);
+    saveSeat();
+    showGame();
+    setStatus(`Joined room ${state.roomCode}.`, "success");
+  } catch (error) {
+    setStatus(error.message, "error");
+  } finally {
+    state.busy = false;
+    elements.createRoom.disabled = false;
+    elements.joinRoom.disabled = false;
+    if (state.room) renderTurn();
+  }
+}
+
+function actionId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function runGameAction() {
+  if (state.busy || !state.room) return;
+  const start = state.room.status === "lobby";
+  try {
+    state.busy = true;
+    renderTurn();
+    setStatus(start ? "Starting the match…" : "Rolling the server die…");
+    const response = await requestJson(
+      start ? "/api/rooms/start" : "/api/rooms/roll",
+      {
+        actionId: actionId(),
+        playerToken: state.playerToken,
+        roomCode: state.roomCode,
+      },
     );
-    elements.boardSummary.textContent = lastPosition === null
-      ? `Start at ${rules.startPosition}. Server transitions are listed below the board.`
-      : `The server confirmed the route's last landing at square ${lastPosition}.`;
-  }
-
-  function renderRuleReference() {
-    const rules = state.rules;
-    document.title = `${rules.name} · INTECHFEST 2026`;
-    elements.gameName.textContent = rules.name;
-    elements.objective.textContent = rules.objective;
-    elements.protocolVersion.textContent = `protocol ${rules.protocolVersion}`;
-    elements.waveSeconds.textContent = `${rules.waveSeconds} seconds`;
-    elements.rulesTurnCount.textContent = `${rules.turnCount} turns`;
-    elements.finishPosition.textContent = `square ${rules.finishPosition}`;
-
-    elements.rulesList.replaceChildren();
-    if (rules.rules.length === 0) {
-      const item = document.createElement("li");
-      item.textContent = "Follow the choices and submit before the wave closes.";
-      elements.rulesList.append(item);
-    } else {
-      rules.rules.forEach((rule) => {
-        const item = document.createElement("li");
-        item.textContent = rule;
-        elements.rulesList.append(item);
-      });
+    applyRoom(response.document, response.sent, response.received);
+    setStatus(start ? "Match started. Good luck!" : describeLastMove(), "success");
+    if (state.room.status === "finished") {
+      stopPolling();
     }
-
-    elements.transitionList.replaceChildren();
-    if (rules.transitions.length === 0) {
-      const item = document.createElement("li");
-      item.textContent = "No board transitions are active.";
-      elements.transitionList.append(item);
-    } else {
-      [...rules.transitions]
-        .sort((left, right) => left.from - right.from)
-        .forEach((transition) => {
-          const item = document.createElement("li");
-          item.textContent = transitionLabel(transition);
-          elements.transitionList.append(item);
-        });
-    }
-
-    renderBoard();
+  } catch (error) {
+    setStatus(error.message, "error");
+    await pollRoom();
+  } finally {
+    state.busy = false;
+    if (state.room) renderTurn();
   }
+}
 
-  function renderTurns(turns) {
-    const fragment = document.createDocumentFragment();
-    elements.turnList.replaceChildren();
-
-    turns.forEach((turn) => {
-      const fieldset = document.createElement("fieldset");
-      const legend = document.createElement("legend");
-      const choiceGrid = document.createElement("div");
-
-      fieldset.className = "turn-card";
-      fieldset.dataset.turn = String(turn.turn);
-      legend.textContent = `Turn ${turn.turn}`;
-      choiceGrid.className = "choice-grid";
-      fieldset.append(legend, choiceGrid);
-
-      turn.options.forEach((roll, optionIndex) => {
-        const inputId = `turn-${turn.turn}-option-${optionIndex + 1}`;
-        const label = document.createElement("label");
-        const input = document.createElement("input");
-        const choiceIndicator = document.createElement("span");
-        const optionLabel = document.createElement("span");
-        const optionRoll = document.createElement("span");
-
-        label.className = "roll-choice";
-        label.htmlFor = inputId;
-        input.id = inputId;
-        input.type = "radio";
-        input.name = `turn-${turn.turn}`;
-        input.value = String(optionIndex);
-        input.required = true;
-        choiceIndicator.className = "choice-indicator";
-        choiceIndicator.setAttribute("aria-hidden", "true");
-        optionLabel.className = "choice-label";
-        optionLabel.textContent = `Option ${optionIndex + 1}`;
-        optionRoll.className = "choice-roll";
-        optionRoll.textContent = String(roll);
-        label.append(input, choiceIndicator, optionLabel, optionRoll);
-        choiceGrid.append(label);
-      });
-
-      fragment.append(fieldset);
+async function pollRoom() {
+  if (state.polling || !state.playerToken || !state.roomCode) return;
+  state.polling = true;
+  try {
+    const response = await requestJson("/api/rooms/state", {
+      playerToken: state.playerToken,
+      roomCode: state.roomCode,
     });
-
-    elements.turnList.append(fragment);
+    const previousStatus = state.room?.status;
+    const previousMove = state.room?.turnNumber;
+    applyRoom(response.document, response.sent, response.received);
+    if (previousStatus === "lobby" && state.room.status === "playing") {
+      setStatus("The host started the match.", "success");
+    } else if (previousMove !== state.room.turnNumber && state.room.lastMove) {
+      setStatus(describeLastMove(), "success");
+    }
+    if (state.room.status === "finished") {
+      const winner = state.room.winnerId ? playerById(state.room.winnerId) : null;
+      setStatus(winner ? `${playerLabel(winner)} won the match!` : "The match ended in a draw.", "success");
+      stopPolling();
+    }
+  } catch (error) {
+    setStatus(error.message, "error");
+    if ([403, 404, 410].includes(error.status)) {
+      clearSeat();
+      showEntry();
+    }
+  } finally {
+    state.polling = false;
   }
+}
 
-  function stopCountdown() {
-    if (state.countdownTimer !== null) {
-      window.clearInterval(state.countdownTimer);
-      state.countdownTimer = null;
-    }
+function startPolling() {
+  stopPolling();
+  state.pollTimer = window.setInterval(pollRoom, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (state.pollTimer !== null) {
+    window.clearInterval(state.pollTimer);
+    state.pollTimer = null;
   }
+}
 
-  function updateCountdown() {
-    if (!state.session) {
-      elements.waveCountdown.textContent = "—";
-      return;
-    }
-
-    const milliseconds = state.session.waveEndsAt - serverNow(
-      state.serverClock,
-      performance.now(),
-    );
-    if (milliseconds <= 0) {
-      elements.waveCountdown.textContent = "closed";
-      stopCountdown();
-      if (!state.expired && !elements.resultPanel.hidden) {
-        return;
-      }
-      if (!state.expired) {
-        state.expired = true;
-        elements.playButton.disabled = true;
-        setStatus("This wave closed. Start a new session to receive the current route.", "warning");
-      }
-      return;
-    }
-
-    const totalSeconds = Math.ceil(milliseconds / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    elements.waveCountdown.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
+async function reconnect() {
+  const saved = savedSeat();
+  if (!saved) {
+    setStatus("No saved room is available.", "warning");
+    return;
   }
-
-  function startCountdown() {
-    stopCountdown();
-    updateCountdown();
-    if (!state.expired) {
-      state.countdownTimer = window.setInterval(updateCountdown, 1000);
-    }
+  state.playerToken = saved.playerToken;
+  state.roomCode = saved.roomCode;
+  setStatus(`Reconnecting to room ${saved.roomCode}…`);
+  await pollRoom();
+  if (state.room) {
+    showGame();
+    setStatus(`Reconnected to room ${saved.roomCode}.`, "success");
   }
+}
 
-  function renderSession(session) {
-    elements.waveId.textContent = session.waveId;
-    elements.turnCount.textContent = String(session.turns.length);
-    renderTurns(session.turns);
-    elements.joinPanel.hidden = true;
-    elements.gamePanel.hidden = false;
-    elements.resultPanel.hidden = true;
-    elements.playButton.disabled = false;
-    state.expired = false;
-    startCountdown();
-    elements.waveTitle.focus();
+async function copyRoomCode() {
+  if (!state.roomCode) return;
+  try {
+    await navigator.clipboard.writeText(state.roomCode);
+    setStatus(`Room code ${state.roomCode} copied.`, "success");
+  } catch {
+    setStatus(`Room code: ${state.roomCode}`, "warning");
   }
+}
 
-  function renderResult(result) {
-    const efficiencyText = result.efficiency.possible === 0
-      ? `${result.efficiency.earned} / 0`
-      : `${result.efficiency.earned} / ${result.efficiency.possible}`;
-
-    elements.resultTitle.textContent = result.accepted ? "Route accepted" : "Route rejected";
-    elements.acceptanceChip.textContent = result.accepted ? "Accepted" : "Rejected";
-    elements.acceptanceChip.dataset.accepted = String(result.accepted);
-    elements.finalPosition.textContent = String(result.finalPosition);
-    elements.optimalPosition.textContent = String(result.optimalPosition);
-    elements.efficiency.textContent = efficiencyText;
-    elements.landingList.replaceChildren();
-
-    if (result.landings.length === 0) {
-      const item = document.createElement("li");
-      item.className = "landing";
-      const route = document.createElement("span");
-      route.className = "landing-route";
-      route.textContent = "No landings were confirmed.";
-      item.append(route);
-      elements.landingList.append(item);
-    } else {
-      result.landings.forEach((landing) => {
-        const item = document.createElement("li");
-        const route = document.createElement("span");
-        const roll = document.createElement("span");
-
-        item.className = "landing";
-        route.className = "landing-route";
-        route.textContent = `Turn ${landing.turn}: ${landing.from} → ${landing.to}`;
-        roll.className = "landing-roll";
-        roll.textContent = `roll ${landing.roll}`;
-
-        if (landing.transportFrom !== null) {
-          const transport = document.createElement("span");
-          transport.className = "landing-transport";
-          transport.textContent = `Transition ${landing.transportFrom} → ${landing.transportTo}`;
-          route.append(transport);
-        }
-
-        item.append(route, roll);
-        elements.landingList.append(item);
-      });
-    }
-
-    elements.resultPanel.hidden = false;
-    elements.playButton.disabled = true;
-    elements.turnList.querySelectorAll("input").forEach((input) => {
-      input.disabled = true;
-    });
-    renderBoard(result.finalPosition);
-    stopCountdown();
-    elements.resultTitle.focus();
+function renderRules() {
+  elements.rulesList.textContent = "";
+  for (const rule of state.rules.rules) {
+    const item = document.createElement("li");
+    item.textContent = rule;
+    elements.rulesList.append(item);
   }
+}
 
-  async function loadRules() {
-    try {
-      const [rawRules, rawHealth] = await Promise.all([
-        requestJson("/api/rules"),
-        requestJson("/healthz"),
-      ]);
-      state.rules = normalizeRules(rawRules);
-      const health = normalizeHealth(rawHealth);
-      renderRuleReference();
-      const modeLabel = health.mode.replace(/[-_]+/g, " ");
-      const unavailable = health.mode === "misconfigured" || health.mode === "unconfigured";
-      setConnection(modeLabel, health.mode === "misconfigured" ? "error" : "ready");
-      setStatus(
-        unavailable
-          ? `Rules loaded. Gameplay is currently ${modeLabel}; wait for the managed target to be prepared.`
-          : "Rules loaded. Enter your player capability when you are ready.",
-        unavailable ? "warning" : "success",
-      );
-    } catch (error) {
-      setConnection("Unavailable", "error");
-      setStatus(error instanceof Error ? error.message : "Could not load game rules.", "error");
-      elements.joinButton.disabled = true;
+async function initialize() {
+  try {
+    const rulesResponse = await requestJson("/api/rules");
+    state.rules = normalizeRules(rulesResponse.document);
+    renderRules();
+    buildBoard();
+
+    const healthResponse = await requestJson("/healthz");
+    const health = healthResponse.document;
+    elements.runtimeBadge.textContent = health.mode === "local-development"
+      ? "Local game"
+      : health.scoringReady ? "Leaderboard ready" : "Leaderboard warming up";
+    elements.runtimeBadge.dataset.ready = String(Boolean(health.scoringReady));
+    showEntry();
+    if (savedSeat()) {
+      await reconnect();
+      if (state.room) return;
     }
+    setStatus("Create a room or join your friends with a room code.", "success");
+  } catch (error) {
+    elements.runtimeBadge.textContent = "Unavailable";
+    setStatus(error.message, "error");
   }
+}
 
-  async function createSession(event) {
-    event.preventDefault();
-    if (state.submitting || !state.rules) {
-      return;
-    }
+elements.createRoom.addEventListener("click", () => enterRoom("create"));
+elements.roomForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  enterRoom("join");
+});
+elements.gameAction.addEventListener("click", runGameAction);
+elements.copyCode.addEventListener("click", copyRoomCode);
+elements.reconnectRoom.addEventListener("click", reconnect);
+elements.newRoom.addEventListener("click", () => {
+  clearSeat();
+  showEntry();
+  setStatus("Create a new room or join another match.");
+});
+elements.roomCode.addEventListener("input", () => {
+  const normalized = elements.roomCode.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "");
+  elements.roomCode.value = normalized.slice(0, 6);
+  elements.roomCode.setAttribute("aria-invalid", "false");
+});
+for (const input of [elements.playerName, elements.capability]) {
+  input.addEventListener("input", () => input.setAttribute("aria-invalid", "false"));
+}
+window.setInterval(renderCountdown, 250);
+window.addEventListener("beforeunload", stopPolling);
 
-    const token = elements.token.value.trim();
-    if (token.length === 0) {
-      setStatus("Enter your player capability before starting a wave.", "error");
-      elements.token.focus();
-      return;
-    }
-
-    state.submitting = true;
-    setButtonBusy(elements.joinButton, true, "Starting…", "Start wave");
-    setStatus("Authenticating capability and requesting this wave's route…");
-
-    try {
-      const requestStarted = performance.now();
-      const raw = await requestJson("/api/session", {
-        body: JSON.stringify({ token }),
-        method: "POST",
-      });
-      const responseReceived = performance.now();
-      const session = normalizeSession(raw);
-      if (session.turns.length !== state.rules.turnCount) {
-        throw new Error("The session does not match the advertised turn count.");
-      }
-      state.serverClock = makeServerClock(
-        session.serverTime,
-        requestStarted,
-        responseReceived,
-      );
-      state.session = session;
-      elements.token.value = "";
-      renderSession(session);
-      setStatus(`Wave ${session.waveId} is ready. Choose one roll for every turn.`, "success");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not start a session.", "error");
-      elements.token.focus();
-    } finally {
-      state.submitting = false;
-      setButtonBusy(elements.joinButton, false, "Starting…", "Start wave");
-    }
-  }
-
-  function collectSelections() {
-    const selections = [];
-    for (const turn of state.session.turns) {
-      const checked = elements.playForm.querySelector(`input[name="turn-${turn.turn}"]:checked`);
-      if (!checked) {
-        throw new Error(`Choose a roll for turn ${turn.turn}.`);
-      }
-      selections.push({ choice: Number(checked.value), turn: turn.turn });
-    }
-    return selections;
-  }
-
-  async function submitRoute(event) {
-    event.preventDefault();
-    if (state.submitting || !state.session || state.expired) {
-      return;
-    }
-
-    let selections;
-    try {
-      selections = collectSelections();
-    } catch (error) {
-      setStatus(error.message, "error");
-      const firstMissing = elements.playForm.querySelector("fieldset:not(:has(input:checked)) input");
-      if (firstMissing) {
-        firstMissing.focus();
-      }
-      return;
-    }
-
-    state.submitting = true;
-    setButtonBusy(elements.playButton, true, "Verifying…", "Lock route");
-    setStatus("Sending the complete route for server-side verification…");
-
-    try {
-      const raw = await requestJson("/api/play", {
-        body: JSON.stringify({ selections, sessionId: state.session.sessionId }),
-        method: "POST",
-      });
-      const result = normalizeResult(raw);
-      if (result.waveId !== state.session.waveId) {
-        throw new Error("The server verdict belongs to a different wave.");
-      }
-      renderResult(result);
-      setStatus(
-        result.accepted
-          ? `Wave ${result.waveId} accepted. Server-confirmed efficiency: ${result.efficiency.earned} of ${result.efficiency.possible}.`
-          : `Wave ${result.waveId} rejected the route. Start again if the wave is still active.`,
-        result.accepted ? "success" : "warning",
-      );
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not verify the route.", "error");
-    } finally {
-      state.submitting = false;
-      if (!state.expired && elements.resultPanel.hidden) {
-        setButtonBusy(elements.playButton, false, "Verifying…", "Lock route");
-      }
-    }
-  }
-
-  function resetSession() {
-    stopCountdown();
-    state.expired = false;
-    state.session = null;
-    elements.playForm.reset();
-    elements.turnList.replaceChildren();
-    elements.gamePanel.hidden = true;
-    elements.resultPanel.hidden = true;
-    elements.joinPanel.hidden = false;
-    elements.waveCountdown.textContent = "—";
-    renderBoard();
-    setStatus("Session cleared. Enter a capability to join the current wave.");
-    elements.token.focus();
-  }
-
-  elements.tokenForm.addEventListener("submit", createSession);
-  elements.playForm.addEventListener("submit", submitRoute);
-  elements.restartButton.addEventListener("click", resetSession);
-  window.addEventListener("pagehide", stopCountdown);
-
-  loadRules();
-})();
+initialize();

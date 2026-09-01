@@ -9,8 +9,9 @@ validates the Crown, and calculates the scoreboard result.
 Three packages use this model:
 
 - [Serpent Circuit](../events/warmup/challenges/Koth/PPC/serpent-circuit/) owns its original
-  Snake & Ladders wave state and reports bounded `route-efficiency` evidence directly from
-  the same process. Its player-facing HTTP transport needs no gateway.
+  multiplayer Snake & Ladders room state and reports bounded `board-progress` evidence from
+  completed matches directly from the same process. Its player-facing HTTP transport needs
+  no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
   inside the Go coordinator. Its transport-only
@@ -200,7 +201,7 @@ The signed request body has one exact top-level shape:
 ```json
 {
   "context": "<64-lowercase-hex>",
-  "objectiveIds": ["route-efficiency"],
+  "objectiveIds": ["board-progress"],
   "waves": [
     {
       "waveId": "arena-1785123400000",
@@ -209,7 +210,7 @@ The signed request body has one exact top-level shape:
         {
           "tokenHash": "<sha256-current-capability>",
           "activity": {"earned": 1, "possible": 1},
-          "objectives": [{"earned": 97, "possible": 100}],
+          "objectives": [{"earned": 100, "possible": 100}],
           "isCrown": true
         }
       ]

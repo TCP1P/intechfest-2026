@@ -29,7 +29,7 @@ CONTEXT_MAX_FUTURE_MS = 5_000
 HEALTH_FAILURE_THRESHOLD = 3
 HEALTH_FAILURE_GRACE_SECONDS = 15.0
 USER_AGENT = "serpent-circuit-managed-reporter/1"
-OBJECTIVE_IDS = ("route-efficiency",)
+OBJECTIVE_IDS = ("board-progress",)
 INACTIVE_CONTEXT_TITLE = "Leaderboard KotH context is not active"
 CHANGED_CONTEXT_TITLE = "Leaderboard KotH context changed; fetch context and retry"
 

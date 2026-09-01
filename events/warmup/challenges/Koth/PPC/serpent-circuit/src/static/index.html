@@ -3,209 +3,208 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#071116">
-    <title>Serpent Circuit</title>
-    <link rel="icon" href="data:,">
+    <meta name="color-scheme" content="light">
+    <title>Serpent Circuit · Multiplayer Snakes &amp; Ladders</title>
     <link rel="stylesheet" href="/assets/styles.css">
-    <script src="/assets/app.js" type="module"></script>
+    <script type="module" src="/assets/app.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to the game</a>
 
-    <header class="site-header">
-      <div class="header-inner">
+    <header class="site-header" aria-labelledby="game-name">
+      <div class="brand">
+        <span class="brand-die" aria-hidden="true">⚄</span>
         <div>
-          <p class="eyebrow">INTECHFEST 2026 · WARMUP · LEADERBOARD KOTH</p>
+          <p class="eyebrow">INTECHFEST 2026 · MULTIPLAYER HILL</p>
           <h1 id="game-name">Serpent Circuit</h1>
-          <p id="objective" class="lede">
-            Loading the server-authoritative route…
-          </p>
-        </div>
-        <div class="runtime-badge" role="group" aria-label="Game connection status">
-          <span class="runtime-dot" aria-hidden="true"></span>
-          <span id="connection-state">Connecting</span>
+          <p class="tagline">Roll together. Climb fast. Dodge the serpents.</p>
         </div>
       </div>
+      <span id="runtime-badge" class="runtime-badge">Connecting…</span>
     </header>
 
-    <main id="main-content" class="page-shell" tabindex="-1">
-      <div id="status" class="status-strip" role="status" aria-live="polite" aria-atomic="true">
-        Requesting game rules…
+    <main id="main-content" tabindex="-1">
+      <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">
+        Loading the board…
       </div>
 
-      <div class="dashboard">
-        <div class="play-column">
-          <section id="join-panel" class="panel join-panel" aria-labelledby="join-title">
-            <div class="panel-heading">
-              <div>
-                <p class="section-kicker">Authenticate</p>
-                <h2 id="join-title">Enter the circuit</h2>
-              </div>
-              <span id="protocol-version" class="protocol-chip">protocol —</span>
-            </div>
-
-            <p class="panel-copy">
-              Use your event capability to receive this wave's deterministic dice pairs.
-              The capability is sent only to this server and is not stored by this page.
+      <section id="entry-panel" class="entry-layout" aria-labelledby="entry-title" hidden>
+        <article class="panel welcome-card">
+          <div class="panel-heading">
+            <p class="kicker">Private rooms · 2–4 players</p>
+            <h2 id="entry-title">Play Snakes &amp; Ladders with your friends</h2>
+            <p>
+              Create a table and share its room code, or enter a code from another player.
+              Every move is rolled and confirmed by the game server.
             </p>
+          </div>
 
-            <form id="token-form" novalidate>
-              <label for="token">Player capability</label>
-              <div class="input-row">
+          <form id="room-form" novalidate>
+            <div class="field-grid">
+              <div class="field">
+                <label for="player-name">Display name</label>
                 <input
-                  id="token"
-                  name="token"
+                  id="player-name"
+                  name="player-name"
+                  type="text"
+                  autocomplete="nickname"
+                  maxlength="48"
+                  placeholder="e.g. CobraKai"
+                  required
+                >
+              </div>
+
+              <div class="field">
+                <label for="capability">Current KotH capability</label>
+                <input
+                  id="capability"
+                  name="capability"
                   type="password"
                   autocomplete="off"
-                  autocapitalize="none"
                   spellcheck="false"
-                  maxlength="133"
+                  placeholder="koth_…"
                   required
-                  aria-describedby="token-help"
+                  aria-describedby="capability-help"
                 >
-                <button id="join-button" class="button button-primary" type="submit">
-                  Start wave
+                <p id="capability-help" class="field-help">
+                  Used once to authenticate your seat. The raw value is not retained.
+                </p>
+              </div>
+            </div>
+
+            <div class="room-actions">
+              <div class="action-card create-card">
+                <span class="action-icon" aria-hidden="true">＋</span>
+                <div>
+                  <h3>Create a room</h3>
+                  <p>Become the host, then invite up to three more players.</p>
+                </div>
+                <button id="create-room" class="button button-primary" type="button">
+                  Create room
                 </button>
               </div>
-              <p id="token-help" class="field-help">
-                Treat this value like a password. It identifies your team for managed KotH scoring.
-              </p>
-            </form>
-          </section>
 
-          <section id="game-panel" class="panel" aria-labelledby="wave-title" hidden>
-            <div class="panel-heading wave-heading">
-              <div>
-                <p class="section-kicker">Active route</p>
-                <h2 id="wave-title" tabindex="-1">Choose every roll</h2>
-              </div>
-              <button id="restart-button" class="button button-quiet" type="button">
-                Change capability
-              </button>
-            </div>
+              <div class="action-divider" aria-hidden="true"><span>or</span></div>
 
-            <dl class="wave-meta">
-              <div>
-                <dt>Wave</dt>
-                <dd id="wave-id">—</dd>
-              </div>
-              <div>
-                <dt>Closes in</dt>
-                <dd id="wave-countdown">—</dd>
-              </div>
-              <div>
-                <dt>Turns</dt>
-                <dd id="turn-count">—</dd>
-              </div>
-            </dl>
-
-            <form id="play-form" novalidate>
-              <div id="turn-list" class="turn-list"></div>
-              <button id="play-button" class="button button-primary button-wide" type="submit">
-                Lock route
-              </button>
-            </form>
-          </section>
-
-          <section id="result-panel" class="panel result-panel" aria-labelledby="result-title" hidden>
-            <div class="panel-heading">
-              <div>
-                <p class="section-kicker">Server verdict</p>
-                <h2 id="result-title" tabindex="-1">Route accepted</h2>
-              </div>
-              <span id="acceptance-chip" class="verdict-chip">Accepted</span>
-            </div>
-
-            <div class="metrics" role="group" aria-label="Route result">
-              <div class="metric">
-                <span class="metric-label">Final square</span>
-                <strong id="final-position">—</strong>
-              </div>
-              <div class="metric">
-                <span class="metric-label">Optimal square</span>
-                <strong id="optimal-position">—</strong>
-              </div>
-              <div class="metric metric-accent">
-                <span class="metric-label">Efficiency evidence</span>
-                <strong id="efficiency">—</strong>
+              <div class="action-card join-card">
+                <span class="action-icon" aria-hidden="true">↗</span>
+                <div>
+                  <h3>Join a room</h3>
+                  <p>Ask the host for the six-character room code.</p>
+                </div>
+                <label for="room-code">Room code</label>
+                <input
+                  id="room-code"
+                  name="room-code"
+                  class="room-code-input"
+                  type="text"
+                  inputmode="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="6"
+                  placeholder="ABC234"
+                >
+                <button id="join-room" class="button button-secondary" type="submit">
+                  Join room
+                </button>
               </div>
             </div>
+          </form>
 
-            <h3>Confirmed landings</h3>
-            <ol id="landing-list" class="landing-list"></ol>
-            <p class="evidence-note">
-              These values come from the game server. rsctf converts eligible, bounded
-              route-efficiency evidence into leaderboard scoring.
-            </p>
-          </section>
-        </div>
+          <button id="reconnect-room" class="reconnect-button" type="button" hidden>
+            Reconnect to saved room
+          </button>
+        </article>
 
-        <aside class="board-column" aria-label="Circuit reference">
-          <section class="panel board-panel" aria-labelledby="board-title">
-            <div class="panel-heading">
-              <div>
-                <p class="section-kicker">Live map</p>
-                <h2 id="board-title">Circuit board</h2>
-              </div>
-              <span id="board-range" class="board-range">—</span>
+        <aside class="panel quick-rules" aria-labelledby="quick-rules-title">
+          <p class="kicker">How to play</p>
+          <h2 id="quick-rules-title">Race to square 100</h2>
+          <ol class="rule-steps">
+            <li><span aria-hidden="true">1</span><p>Wait for 2–4 players, then the host starts the match.</p></li>
+            <li><span aria-hidden="true">2</span><p>On your turn, press <strong>Roll dice</strong> before the timer ends.</p></li>
+            <li><span aria-hidden="true">3</span><p>Climb ladders, slide down snakes, and roll exactly onto 100 to win.</p></li>
+          </ol>
+          <div class="rule-note">
+            <span aria-hidden="true">⚅</span>
+            <p><strong>Roll a six?</strong> You immediately take another turn.</p>
+          </div>
+        </aside>
+      </section>
+
+      <section id="game-panel" class="game-layout" aria-labelledby="room-title" hidden>
+        <aside class="panel match-sidebar">
+          <div class="room-heading">
+            <div>
+              <p class="kicker">Private room</p>
+              <h2 id="room-title" tabindex="-1">Room <span id="room-code-label">—</span></h2>
             </div>
+            <button id="copy-code" class="icon-button" type="button" aria-label="Copy room code">
+              Copy
+            </button>
+          </div>
+          <p id="room-help" class="room-help">Share this code so friends can join.</p>
 
-            <div class="legend" role="group" aria-label="Board legend">
-              <span><b class="legend-mark boost" aria-hidden="true">↗</b> boost</span>
-              <span><b class="legend-mark drop" aria-hidden="true">↘</b> serpent</span>
-              <span><b class="legend-mark player" aria-hidden="true">◆</b> last landing</span>
+          <h3 class="players-heading">Players <span id="player-count">0/4</span></h3>
+          <ol id="player-list" class="player-list" aria-label="Players in this room"></ol>
+
+          <div class="turn-card">
+            <p id="turn-label" class="turn-label">Waiting in the lobby</p>
+            <div id="die" class="die" aria-hidden="true">?</div>
+            <p id="turn-countdown" class="turn-countdown">—</p>
+            <button id="game-action" class="button button-primary roll-button" type="button" disabled>
+              Waiting for players
+            </button>
+          </div>
+
+          <div id="last-move" class="last-move" aria-live="polite">
+            No rolls yet. The host starts when everyone is ready.
+          </div>
+
+          <button id="new-room" class="text-button" type="button" hidden>
+            Return to room setup
+          </button>
+        </aside>
+
+        <section class="panel board-panel" aria-labelledby="board-title">
+          <div class="board-heading">
+            <div>
+              <p class="kicker">Live match</p>
+              <h2 id="board-title">The Serpent Board</h2>
             </div>
+            <div class="legend" aria-label="Board legend">
+              <span><i class="legend-line ladder-line"></i>Ladder</span>
+              <span><i class="legend-line snake-line"></i>Snake</span>
+            </div>
+          </div>
 
+          <div class="board-frame">
             <div
               id="board"
               class="board"
               role="img"
-              aria-label="The circuit board is loading."
+              aria-label="Snakes and Ladders board from square 1 to square 100"
             ></div>
-            <p id="board-summary" class="board-summary">Waiting for board rules.</p>
+          </div>
 
-            <details class="transition-details">
-              <summary>Accessible transition list</summary>
-              <ul id="transition-list" class="transition-list"></ul>
-            </details>
-          </section>
+          <p id="board-summary" class="sr-only" aria-live="polite"></p>
+        </section>
+      </section>
 
-          <section class="panel rules-panel" aria-labelledby="rules-title">
-            <div class="panel-heading">
-              <div>
-                <p class="section-kicker">Server contract</p>
-                <h2 id="rules-title">Rules</h2>
-              </div>
-            </div>
-            <dl class="rule-facts">
-              <div>
-                <dt>Wave length</dt>
-                <dd id="wave-seconds">—</dd>
-              </div>
-              <div>
-                <dt>Choices</dt>
-                <dd id="rules-turn-count">—</dd>
-              </div>
-              <div>
-                <dt>Finish</dt>
-                <dd id="finish-position">—</dd>
-              </div>
-            </dl>
-            <ul id="rules-list" class="rules-list">
-              <li>Loading authoritative rules…</li>
-            </ul>
-          </section>
-        </aside>
-      </div>
+      <section class="panel full-rules" aria-labelledby="full-rules-title">
+        <div>
+          <p class="kicker">Server rules</p>
+          <h2 id="full-rules-title">Fair rolls, shared board</h2>
+        </div>
+        <ul id="rules-list" class="rules-list"></ul>
+      </section>
     </main>
 
-    <footer class="site-footer">
-      <p>Serpent Circuit · score routes, not client claims</p>
+    <footer>
+      <p>Serpent Circuit · server-authoritative multiplayer Snakes &amp; Ladders</p>
     </footer>
 
     <noscript>
-      <div class="noscript">JavaScript is required to submit a Serpent Circuit route.</div>
+      <div class="noscript">JavaScript is required to join and play a multiplayer match.</div>
     </noscript>
   </body>
 </html>

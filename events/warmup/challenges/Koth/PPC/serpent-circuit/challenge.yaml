@@ -1,18 +1,19 @@
-# Serpent Circuit is a shared, managed-reporting Leaderboard KotH game.
+# Serpent Circuit is a shared multiplayer, managed-reporting Leaderboard KotH game.
 name: "Serpent Circuit"
 author: "TCP1P"
 description: |
-  Every 60 seconds, every team in the official event roster receives the same
-  twelve ordered pairs of dice.
-  Choose one die from each pair and route your piece across a board of snakes
-  and ladders. The server applies every move in order, so plan the complete
-  route before spending your one run for the wave.
+  Create a private Snakes & Ladders room or join one with its six-character
+  code. Two to four authenticated teams share the same live board and take
+  turns rolling a server-generated die. Climb ladders, slide down snakes, roll
+  exactly onto square 100, and remember that a six grants another turn.
 
-  Authenticate with your current KotH capability in the game UI. RSCTF scores
-  the bounded `route-efficiency` ratio reported by the managed game server:
-  `(finalPosition - startPosition) / (optimalPosition - startPosition)`.
-  A unique positive leader earns the wave Crown; an exact tie earns no Crown.
-  The game reports native route evidence, never platform points or raw tokens.
+  Authenticate each seat with its current KotH capability. Expired turns are
+  rolled automatically after 30 seconds, so every match keeps moving. When a
+  match finishes, the managed server reports each team's bounded
+  `board-progress` ratio for that scoring wave. The sole greatest positive
+  result earns the Crown; an exact tie earns no Crown. The game retains only
+  authenticated capability hashes and never reports platform points or raw
+  capabilities.
 type: KingOfTheHill
 category: PPC
 disableBloodBonus: true

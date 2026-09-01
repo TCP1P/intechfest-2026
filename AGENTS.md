@@ -58,8 +58,9 @@ Do not use author or solution context as the blind solver.
   writes the current player capability to `/koth/king`; it has no managed reporter and must
   not be configured as Leaderboard.
 - `Serpent Circuit` is a shared managed Leaderboard KotH scoring game. The target owns
-  server-authoritative Snake & Ladders waves, retains only authenticated capability hashes,
-  and reports bounded route-efficiency evidence in process. It has no marker or gateway.
+  server-authoritative two-to-four-player Snake & Ladders rooms, retains only authenticated
+  capability hashes, and reports bounded board-progress evidence from completed matches in
+  process. It has no marker or gateway.
 
 All warmup checkers are bounded and read-only. The A&D checker receives the current flag;
 both KotH checkers receive no flag and never inspect or alter their claim source.

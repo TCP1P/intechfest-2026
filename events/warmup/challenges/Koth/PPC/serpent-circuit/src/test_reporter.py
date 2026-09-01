@@ -343,7 +343,7 @@ class ConfigurationTests(unittest.TestCase):
             round_context = client.fetch_context()
         self.assertEqual(round_context.eligible_hashes, frozenset())
         body = json.loads(client._body(round_context, 182_001))
-        self.assertEqual(body["objectiveIds"], ["route-efficiency"])
+        self.assertEqual(body["objectiveIds"], ["board-progress"])
         self.assertTrue(body["waves"])
         self.assertTrue(all(wave["teams"] == [] for wave in body["waves"]))
 
