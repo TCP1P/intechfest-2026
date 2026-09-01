@@ -21,7 +21,7 @@ VALID_HEALTH = {
     "status": "ok",
     "mode": "managed",
     "players": 0,
-    "protocol": "serpent-circuit/3",
+    "protocol": "serpent-circuit/4",
     "reporter": {
         "alive": True,
         "consecutiveFailures": 0,
@@ -33,7 +33,7 @@ VALID_HEALTH = {
 }
 VALID_RULES = {
     "name": "Serpent Circuit",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "boardSize": 100,
     "startPosition": 0,
     "finishPosition": 100,

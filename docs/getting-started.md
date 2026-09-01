@@ -46,7 +46,7 @@ The current packages are examples of this repository's actual delivery model:
 | --- | --- | --- |
 | `events/warmup/challenges/AD/Web/parcel-panic/` | self-hosted/BYOC A&D service, rotating flag file, read-only checker | teams must run and patch the issued image on their own host |
 | `events/warmup/challenges/Koth/Web/draft-control/` | shared marker/Boot2Root hill with an atomic `/koth/king` control path | control is exclusive and proven by placing the current KotH capability in the marker |
-| `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared multiplayer browser/API game, optional practice NPC, read-only checker, in-process managed reporter | two to four seats share server-authoritative rooms; human-only completed matches produce bounded native evidence while NPC rooms never report |
+| `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared multiplayer browser/API game, optional practice NPC, read-only checker, in-process managed reporter | two to four seats share server-authoritative rooms; active human-only matches produce one bounded furthest-progress row per completed tick while NPC rooms never report |
 | `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |
 | `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, optional transport gateway | a managed target reports evidence but needs HTTPS/UDP adaptation |
 

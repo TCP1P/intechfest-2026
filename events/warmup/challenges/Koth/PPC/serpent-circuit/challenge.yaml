@@ -14,11 +14,12 @@ description: |
 
   Authenticate each human seat with its current KotH capability. Expired human
   turns are rolled automatically after 30 seconds, so every match keeps
-  moving. When a human-only match finishes, the managed server reports each
-  team's bounded `board-progress` ratio for that scoring wave. The sole greatest positive
-  result earns the Crown; an exact tie earns no Crown. The game retains only
-  authenticated capability hashes and never reports platform points or raw
-  capabilities.
+  moving. During a human-only match, every completed 60-second scoring tick
+  reports each team's furthest server-confirmed square held during that tick as
+  a bounded `board-progress` ratio. The sole greatest positive result earns the
+  Crown; an exact tie earns no Crown. Finished, lobby, and NPC rooms do not
+  carry progress into later ticks. The game retains only authenticated
+  capability hashes and never reports platform points or raw capabilities.
 type: KingOfTheHill
 category: PPC
 disableBloodBonus: true

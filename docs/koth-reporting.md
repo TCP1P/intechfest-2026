@@ -10,9 +10,11 @@ Three packages use this model:
 
 - [Serpent Circuit](../events/warmup/challenges/Koth/PPC/serpent-circuit/) owns its original
   multiplayer Snake & Ladders room state and reports bounded `board-progress` evidence from
-  completed human-only matches directly from the same process. Its optional server-controlled
-  NPC is a practice fallback: any room containing it emits no evidence. The player-facing
-  HTTP transport needs no gateway.
+  each completed 60-second tick of an active human-only match directly from the same process.
+  One team contributes at most one furthest-position row per tick; lobby, finished, and NPC
+  rooms do not carry progress into later ticks. Its optional server-controlled NPC is a
+  practice fallback: any room containing it emits no evidence. The player-facing HTTP
+  transport needs no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
   inside the Go coordinator. Its transport-only

@@ -34,10 +34,12 @@ class GameTests(unittest.TestCase):
             app.rooms.clear()
             app.seat_index.clear()
             app.active_team_seats.clear()
-            app.scored_team_waves.clear()
+            app.pending_team_waves.clear()
             app.events.clear()
             app.next_cursor = 1
         app.publish_managed_context(None)
+        with app.managed_context_lock:
+            app.managed_lifecycle = None
         app.reporter_runtime.set_stopped()
         app.capability_authenticator.reset()
         connection_patcher = patch.object(app.capability_authenticator, "_connect_upstream")
@@ -54,7 +56,7 @@ class GameTests(unittest.TestCase):
 
     def test_rules_publish_the_multiplayer_contract_and_original_board(self):
         rules = app.rules_document()
-        self.assertEqual(rules["protocolVersion"], 3)
+        self.assertEqual(rules["protocolVersion"], 4)
         self.assertEqual(rules["startPosition"], 0)
         self.assertEqual(rules["finishPosition"], 100)
         self.assertEqual(rules["minPlayers"], 2)
@@ -64,6 +66,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(len(rules["transitions"]), 14)
         self.assertFalse(set(app.TRANSITIONS) & set(app.TRANSITIONS.values()))
         self.assertIn("NPC matches are practice-only", " ".join(rules["rules"]))
+        self.assertIn("completed 60-second scoring tick", " ".join(rules["rules"]))
         self.assertIn("The first player to reach 100 wins the match.", rules["rules"])
 
     def test_server_applies_ladders_snakes_and_exact_finish(self):
@@ -296,6 +299,245 @@ class GameTests(unittest.TestCase):
         self.assertNotIn(LOCAL_TOKENS[0], encoded)
         self.assertNotIn(LOCAL_TOKENS[1], encoded)
 
+    def test_active_human_match_records_progress_in_every_completed_tick(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 20
+            room.players[1].position = 40
+            room.turn_deadline_ms = 2_000_000
+            app._record_room_progress_locked(room, 1_800_000)
+
+        self.assertEqual(
+            app.read_evidence_page(0, current_time_ms=1_859_999)["events"],
+            [],
+        )
+        first = app.read_evidence_page(0, current_time_ms=1_860_000)
+        self.assertEqual(len(first["events"]), 2)
+        self.assertEqual(
+            sorted(event["earned"] for event in first["events"]),
+            [20, 40],
+        )
+        self.assertTrue(
+            all(event["waveStart"] == 1_800_000 for event in first["events"])
+        )
+
+        second = app.read_evidence_page(
+            first["nextCursor"],
+            current_time_ms=1_920_000,
+        )
+        self.assertEqual(len(second["events"]), 2)
+        self.assertEqual(
+            sorted(event["earned"] for event in second["events"]),
+            [20, 40],
+        )
+        self.assertTrue(
+            all(event["waveStart"] == 1_860_000 for event in second["events"])
+        )
+
+    def test_reporter_clock_advances_an_expired_turn_without_player_polling(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            app.read_evidence_page(0, current_time_ms=1_830_010)
+
+        with app.state_lock:
+            room = app.rooms[code]
+            self.assertEqual(room.turn_number, 1)
+            self.assertTrue(room.last_move["automatic"])
+            self.assertEqual(room.last_move["roll"], 1)
+            self.assertNotEqual(room.current_player_index, 0)
+
+    def test_finalized_tick_reaches_the_reporter_with_one_unique_crown(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 20
+            room.players[1].position = 40
+            room.turn_deadline_ms = 2_000_000
+            app._record_room_progress_locked(room, 1_800_000)
+
+        hashes = frozenset(
+            hashlib.sha256(token.encode()).hexdigest()
+            for token in LOCAL_TOKENS[:2]
+        )
+        context = reporter.RoundContext(
+            opaque="a" * 64,
+            cycle_number=0,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=1_800_000,
+            ends_at=1_860_001,
+            cycle_ends_at=2_100_000,
+            scoring_ends_at=2_040_000,
+            scoring_floor=1_800_000,
+            generated_at=1_800_000,
+            eligible_hashes=hashes,
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash=reporter._objective_schema_hash(
+                (app.OBJECTIVE_ID,)
+            ),
+        )
+        current_time = 1_862_001
+        client = reporter.ManagedReporter(
+            reporter.Config(
+                game_id=7,
+                challenge_id=11,
+                secret="koth_target_" + "s" * 43,
+                context_url="http://127.0.0.1/context",
+                observation_url="http://127.0.0.1/observations",
+                poll_seconds=1,
+                timeout_seconds=2,
+            ),
+            lambda after: app.read_evidence_page(after, current_time),
+        )
+
+        self.assertTrue(client._consume_feed(context, current_time))
+        body = json.loads(client._body(context, current_time))
+        self.assertEqual(len(body["waves"]), 1)
+        rows = body["waves"][0]["teams"]
+        self.assertEqual(
+            sorted(row["objectives"][0]["earned"] for row in rows),
+            [20, 40],
+        )
+        crowns = [row for row in rows if row["isCrown"]]
+        self.assertEqual(len(crowns), 1)
+        self.assertEqual(crowns[0]["objectives"][0]["earned"], 40)
+
+    def test_tick_uses_furthest_position_even_after_a_snake(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 63
+            app._record_room_progress_locked(room, 1_800_000)
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            result = app.roll_room(
+                code,
+                host["playerToken"],
+                "action_roll_001",
+                1_800_020,
+            )
+        self.assertEqual(result["players"][0]["position"], 40)
+
+        feed = app.read_evidence_page(0, current_time_ms=1_860_000)
+        host_hash = hashlib.sha256(LOCAL_TOKENS[0].encode()).hexdigest()
+        host_row = next(
+            event for event in feed["events"] if event["tokenHash"] == host_hash
+        )
+        self.assertEqual(host_row["earned"], 63)
+
+    def test_post_boundary_roll_belongs_only_to_the_new_tick(self):
+        host, _guest = self.create_two_player_room(timestamp=1_800_000)
+        code = host["room"]["code"]
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
+        with app.state_lock:
+            room = app.rooms[code]
+            room.players[0].position = 10
+            room.turn_deadline_ms = 1_900_000
+            app._record_room_progress_locked(room, 1_800_000)
+
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            app.roll_room(
+                code,
+                host["playerToken"],
+                "action_roll_001",
+                1_860_001,
+            )
+
+        host_hash = hashlib.sha256(LOCAL_TOKENS[0].encode()).hexdigest()
+        first = app.read_evidence_page(0, current_time_ms=1_860_001)
+        first_host = next(
+            event for event in first["events"] if event["tokenHash"] == host_hash
+        )
+        self.assertEqual(first_host["waveStart"], 1_800_000)
+        self.assertEqual(first_host["earned"], 10)
+
+        second = app.read_evidence_page(
+            first["nextCursor"],
+            current_time_ms=1_920_000,
+        )
+        second_host = next(
+            event for event in second["events"] if event["tokenHash"] == host_hash
+        )
+        self.assertEqual(second_host["waveStart"], 1_860_000)
+        self.assertEqual(second_host["earned"], 11)
+
+    def test_tick_scoring_survives_round_context_gap_but_stops_after_reset(self):
+        token_hashes = frozenset(
+            hashlib.sha256(token.encode()).hexdigest()
+            for token in LOCAL_TOKENS[:2]
+        )
+        context = reporter.RoundContext(
+            opaque="a" * 64,
+            cycle_number=3,
+            reset_attempt=0,
+            round_number=1,
+            starts_at=1_800_000,
+            ends_at=1_860_001,
+            cycle_ends_at=2_100_000,
+            scoring_ends_at=2_040_000,
+            scoring_floor=1_800_000,
+            generated_at=app.now_ms(),
+            eligible_hashes=token_hashes,
+            objective_ids=(app.OBJECTIVE_ID,),
+            objective_schema_hash="b" * 64,
+        )
+        with (
+            patch.dict(os.environ, MANAGED_ENV, clear=True),
+            patch.object(app.capability_authenticator, "_authenticate_upstream"),
+        ):
+            app.publish_managed_context(context)
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_010)
+            app.join_room(
+                LOCAL_TOKENS[1],
+                "Bob",
+                host["room"]["code"],
+                1_800_011,
+            )
+            app.start_room(
+                host["room"]["code"],
+                host["playerToken"],
+                "action_start_1",
+                1_800_012,
+            )
+
+            app.publish_managed_context(None)
+            first = app.read_evidence_page(0, current_time_ms=1_860_000)
+            self.assertEqual(len(first["events"]), 2)
+
+            app.publish_managed_context(
+                reporter.RoundContext(
+                    **{
+                        **context.__dict__,
+                        "opaque": "c" * 64,
+                        "reset_attempt": 1,
+                        "round_number": 2,
+                        "starts_at": 1_860_000,
+                        "ends_at": 1_920_001,
+                        "scoring_floor": 1_860_000,
+                    }
+                )
+            )
+            second = app.read_evidence_page(
+                first["nextCursor"],
+                current_time_ms=1_920_000,
+            )
+            self.assertEqual(second["events"], [])
+            with self.assertRaisesRegex(app.GameError, "lifecycle changed"):
+                app.room_state(
+                    host["room"]["code"],
+                    host["playerToken"],
+                    1_920_001,
+                )
+
     def test_exact_finish_overshoot_keeps_match_active(self):
         host, _guest = self.create_two_player_room()
         code = host["room"]["code"]
@@ -331,7 +573,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(result["status"], "finished")
         self.assertIsNone(result["winnerId"])
 
-    def test_scoring_retains_only_one_result_per_team_wave(self):
+    def test_tick_scoring_retains_one_best_result_per_team(self):
         host, guest = self.create_two_player_room(timestamp=1_800_000)
         code = host["room"]["code"]
         app.start_room(code, host["playerToken"], "action_start_1", 1_800_010)
@@ -357,8 +599,13 @@ class GameTests(unittest.TestCase):
             result = app.roll_room(
                 second["room"]["code"], second["playerToken"], "action_roll_002", 1_800_040
             )
-        self.assertEqual(result["scoreStatus"], "already-recorded-this-wave")
-        self.assertEqual(len(app.read_evidence_page(0)["events"]), 2)
+        self.assertEqual(result["scoreStatus"], "recorded")
+        feed = app.read_evidence_page(0, current_time_ms=1_860_000)
+        self.assertEqual(len(feed["events"]), 2)
+        self.assertEqual(
+            sorted(event["earned"] for event in feed["events"]),
+            [50, 100],
+        )
         self.assertTrue(second_guest["playerToken"])
 
     def test_managed_identity_is_authenticated_and_lifecycle_fenced(self):
@@ -468,7 +715,7 @@ class GameTests(unittest.TestCase):
             with patch.dict(os.environ, MANAGED_ENV, clear=True):
                 status, document = app.health_document()
                 self.assertEqual(status, 200)
-                self.assertEqual(document["protocol"], "serpent-circuit/3")
+                self.assertEqual(document["protocol"], "serpent-circuit/4")
                 self.assertEqual(document["turnSeconds"], 30)
 
                 with patch("reporter.time.monotonic", return_value=100.0):

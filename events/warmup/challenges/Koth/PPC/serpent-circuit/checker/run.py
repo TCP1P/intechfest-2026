@@ -64,6 +64,7 @@ EXPECTED_RULES = [
     "A roll must land exactly on 100; an overshoot leaves the piece in place.",
     "Rolling a six grants another turn, and an expired turn is rolled automatically.",
     "A lone host may add one Circuit Bot; NPC matches are practice-only and never report Leaderboard evidence.",
+    "During a human-only match, each completed 60-second scoring tick records every team's furthest server-confirmed square in that tick.",
     "The first player to reach 100 wins the match.",
 ]
 
@@ -173,7 +174,7 @@ def _validate_health(document: dict[str, Any]) -> None:
         document["scoringReady"], bool
     ):
         raise Mumble("the service did not report a managed lifecycle state")
-    if document["protocol"] != "serpent-circuit/3":
+    if document["protocol"] != "serpent-circuit/4":
         raise Mumble("the health response reported the wrong protocol")
     if (
         document["turnSeconds"] != 30
@@ -227,7 +228,7 @@ def _validate_rules(document: dict[str, Any]) -> None:
         raise Mumble("the rules response shape was incorrect")
     expected_scalars = {
         "name": "Serpent Circuit",
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "boardSize": 100,
         "startPosition": 0,
         "finishPosition": 100,

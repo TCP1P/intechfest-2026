@@ -1,7 +1,7 @@
 import { makeServerClock, serverNow } from "/assets/clock.mjs";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const SAVED_ROOM_KEY = "serpent-circuit-room-v3";
+const SAVED_ROOM_KEY = "serpent-circuit-room-v4";
 const POLL_INTERVAL_MS = 1_000;
 const DIE_FACES = ["?", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const VALID_COLORS = new Set(["coral", "blue", "green", "purple"]);
@@ -92,7 +92,7 @@ function normalizeRules(raw) {
   if (
     raw.name !== "Serpent Circuit"
     || raw.objective !== "board-progress"
-    || raw.protocolVersion !== 3
+    || raw.protocolVersion !== 4
     || raw.boardSize !== 100
     || raw.startPosition !== 0
     || raw.finishPosition !== 100
@@ -103,7 +103,7 @@ function normalizeRules(raw) {
   ) {
     throw new Error("The server returned a different Serpent Circuit contract.");
   }
-  if (!Array.isArray(raw.rules) || raw.rules.length !== 7) {
+  if (!Array.isArray(raw.rules) || raw.rules.length !== 8) {
     throw new Error("The server returned invalid game instructions.");
   }
   const origins = new Set();
@@ -251,7 +251,6 @@ function normalizeRoom(raw) {
     || ![
       "pending",
       "recorded",
-      "already-recorded-this-wave",
       "outside-scoring-window",
       "practice-npc",
     ].includes(raw.scoreStatus)
@@ -592,7 +591,7 @@ function renderTurn() {
     elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "—";
     elements.turnCountdown.textContent = room.scoreStatus === "practice-npc"
       ? "Practice match · not scored"
-      : room.scoreStatus === "recorded" ? "Result recorded" : "Match complete";
+      : room.scoreStatus === "recorded" ? "Final tick recorded" : "Match complete";
     elements.turnLabel.textContent = winner ? `${playerLabel(winner)} wins!` : "Match ended in a draw";
     elements.gameAction.textContent = "Game over";
     elements.gameAction.disabled = true;

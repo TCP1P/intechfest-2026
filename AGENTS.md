@@ -59,9 +59,11 @@ Do not use author or solution context as the blind solver.
   not be configured as Leaderboard.
 - `Serpent Circuit` is a shared managed Leaderboard KotH scoring game. The target owns
   server-authoritative two-to-four-seat Snake & Ladders rooms, retains only authenticated
-  human capability hashes, and reports bounded board-progress evidence from completed
-  human-only matches in process. A lone host may add one server-controlled NPC, but every
-  NPC room is practice-only and emits no Leaderboard evidence. It has no marker or gateway.
+  human capability hashes, and reports one bounded furthest-board-progress result for every
+  active human team in each completed 60-second scoring tick. A lone host may add one
+  server-controlled NPC, but every NPC room is practice-only and emits no Leaderboard
+  evidence. Lobby and finished rooms do not carry progress into later ticks. It has no marker
+  or gateway.
 
 All warmup checkers are bounded and read-only. The A&D checker receives the current flag;
 both KotH checkers receive no flag and never inspect or alter their claim source.

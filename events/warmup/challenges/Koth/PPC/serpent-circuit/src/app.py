@@ -29,8 +29,8 @@ from reporter import start_managed_reporter
 
 
 NAME = "Serpent Circuit"
-PROTOCOL = "serpent-circuit/3"
-PROTOCOL_VERSION = 3
+PROTOCOL = "serpent-circuit/4"
+PROTOCOL_VERSION = 4
 PORT = 8080
 BOARD_SIZE = 100
 START_POSITION = 0
@@ -141,6 +141,8 @@ class Room:
     code: str
     host_player_id: str
     context_opaque: str | None
+    first_scorable_wave_start: int | None
+    final_scoring_cutoff: int | None
     cycle_number: int
     reset_attempt: int
     created_at_ms: int
@@ -154,6 +156,7 @@ class Room:
     finished_at_ms: int | None = None
     score_status: str = "pending"
     last_move: dict[str, object] | None = None
+    scoring_checkpoint_wave: int | None = None
     actions: OrderedDict[str, dict[str, object]] = field(default_factory=OrderedDict)
 
 
@@ -161,11 +164,12 @@ state_lock = threading.Lock()
 rooms: OrderedDict[str, Room] = OrderedDict()
 seat_index: dict[str, tuple[str, str]] = {}
 active_team_seats: dict[tuple[int, int, str], str] = {}
-scored_team_waves: set[tuple[int, int, int, str]] = set()
+pending_team_waves: dict[tuple[int, int, int], dict[str, int]] = {}
 events: deque[dict[str, object]] = deque(maxlen=MAX_EVENTS)
 next_cursor = 1
 managed_context_lock = threading.Lock()
 managed_context: ManagedContext | None = None
+managed_lifecycle: tuple[int, int] | None = None
 reporter_runtime = ReporterRuntime()
 capability_authenticator = CapabilityAuthenticator()
 
@@ -216,6 +220,7 @@ def rules_document() -> dict[str, object]:
             "A roll must land exactly on 100; an overshoot leaves the piece in place.",
             "Rolling a six grants another turn, and an expired turn is rolled automatically.",
             "A lone host may add one Circuit Bot; NPC matches are practice-only and never report Leaderboard evidence.",
+            "During a human-only match, each completed 60-second scoring tick records every team's furthest server-confirmed square in that tick.",
             "The first player to reach 100 wins the match.",
         ],
         "scoringWaveSeconds": SCORING_WAVE_SECONDS,
@@ -341,7 +346,7 @@ def health_document() -> tuple[int, dict[str, object]]:
 
 def publish_managed_context(context: RoundContext | None) -> None:
     """Atomically publish only a context that rsctf accepted for scoring."""
-    global managed_context
+    global managed_context, managed_lifecycle
     with state_lock:
         with managed_context_lock:
             managed_context = (
@@ -359,6 +364,13 @@ def publish_managed_context(context: RoundContext | None) -> None:
                     refreshed_at=time.monotonic(),
                 )
             )
+            if context is not None:
+                next_lifecycle = (context.cycle_number, context.reset_attempt)
+                if managed_lifecycle is not None and managed_lifecycle != next_lifecycle:
+                    for key in list(pending_team_waves):
+                        if key[1:] != next_lifecycle:
+                            pending_team_waves.pop(key, None)
+                managed_lifecycle = next_lifecycle
 
 
 def _current_managed_context() -> ManagedContext:
@@ -510,17 +522,105 @@ def _drop_room_locked(room_code: str) -> None:
             active_team_seats.pop(key, None)
 
 
+def _room_wave_is_scoreable(room: Room, start_ms: int) -> bool:
+    if room.context_opaque is None:
+        return True
+    with managed_context_lock:
+        current_lifecycle = managed_lifecycle
+    return (
+        current_lifecycle == (room.cycle_number, room.reset_attempt)
+        and room.first_scorable_wave_start is not None
+        and room.final_scoring_cutoff is not None
+        and start_ms >= room.first_scorable_wave_start
+        and start_ms + WAVE_DURATION_MS <= room.final_scoring_cutoff
+    )
+
+
+def _record_room_progress_locked(room: Room, start_ms: int) -> bool:
+    """Retain one bounded best position per human team for one native tick."""
+    if (
+        room.status != "playing"
+        or len(room.players) < MIN_PLAYERS
+        or any(player.is_npc for player in room.players)
+        or not _room_wave_is_scoreable(room, start_ms)
+    ):
+        return False
+    rows = pending_team_waves.setdefault(
+        (start_ms, room.cycle_number, room.reset_attempt),
+        {},
+    )
+    for player in room.players:
+        if player.token_hash is None:
+            raise RuntimeError("human player capability hash is missing")
+        rows[player.token_hash] = max(rows.get(player.token_hash, 0), player.position)
+    return True
+
+
+def _checkpoint_room_progress_locked(room: Room, timestamp_ms: int) -> None:
+    """Carry an unchanged active position across elapsed tick boundaries."""
+    if (
+        room.status != "playing"
+        or any(player.is_npc for player in room.players)
+    ):
+        return
+    checkpoint = room.scoring_checkpoint_wave
+    if checkpoint is None:
+        checkpoint = wave_start(timestamp_ms)
+        room.scoring_checkpoint_wave = checkpoint
+        _record_room_progress_locked(room, checkpoint)
+        return
+
+    active_until = min(timestamp_ms + 1, room.last_activity_ms + PLAYING_TTL_MS)
+    if active_until <= checkpoint:
+        return
+    last_active_wave = wave_start(active_until - 1)
+    while checkpoint < last_active_wave:
+        checkpoint += WAVE_DURATION_MS
+        _record_room_progress_locked(room, checkpoint)
+    room.scoring_checkpoint_wave = max(room.scoring_checkpoint_wave, checkpoint)
+
+
+def _finalize_team_waves_locked(timestamp_ms: int) -> None:
+    """Append immutable, wave-ordered evidence only after a tick has ended."""
+    global next_cursor
+    ready = sorted(
+        key
+        for key in pending_team_waves
+        if key[0] + WAVE_DURATION_MS <= timestamp_ms
+    )
+    for start_ms, cycle_number, reset_attempt in ready:
+        rows = pending_team_waves.pop((start_ms, cycle_number, reset_attempt))
+        for token_hash, earned in sorted(rows.items()):
+            events.append(
+                {
+                    "cursor": next_cursor,
+                    "cycleNumber": cycle_number,
+                    "earned": earned,
+                    "occurredAt": start_ms + WAVE_DURATION_MS - 1,
+                    "possible": FINISH_POSITION,
+                    "resetAttempt": reset_attempt,
+                    "tokenHash": token_hash,
+                    "waveStart": start_ms,
+                }
+            )
+            next_cursor += 1
+
+
+def _checkpoint_scoring_locked(timestamp_ms: int) -> None:
+    for room in rooms.values():
+        _checkpoint_room_progress_locked(room, timestamp_ms)
+        if not _room_expired(room, timestamp_ms):
+            _advance_expired_turn_locked(room, timestamp_ms)
+    _finalize_team_waves_locked(timestamp_ms)
+
+
 def _prune_state_locked(timestamp_ms: int) -> None:
+    _checkpoint_scoring_locked(timestamp_ms)
     for room_code, room in list(rooms.items()):
         if _room_expired(room, timestamp_ms):
             _drop_room_locked(room_code)
     while len(rooms) > MAX_ROOMS:
         _drop_room_locked(next(iter(rooms)))
-
-    oldest_wave = wave_start(timestamp_ms) - WAVE_DURATION_MS
-    scored_team_waves.intersection_update(
-        key for key in scored_team_waves if key[0] >= oldest_wave
-    )
 
 
 def _new_room_code_locked() -> str:
@@ -653,6 +753,10 @@ def create_room(token: str, name: object, timestamp_ms: int | None = None) -> di
             code=code,
             host_player_id=player_id,
             context_opaque=context.opaque if context else None,
+            first_scorable_wave_start=(
+                context.first_scorable_wave_start if context else None
+            ),
+            final_scoring_cutoff=context.final_scoring_cutoff if context else None,
             cycle_number=context.cycle_number if context else 0,
             reset_attempt=context.reset_attempt if context else 0,
             created_at_ms=timestamp_ms,
@@ -770,46 +874,6 @@ def add_npc(
         return response
 
 
-def _record_match_locked(room: Room, timestamp_ms: int) -> None:
-    global next_cursor
-    if any(player.is_npc for player in room.players):
-        room.score_status = "practice-npc"
-        return
-    score_wave = wave_start(timestamp_ms)
-    if room.context_opaque is not None:
-        context = _current_managed_context()
-        if (
-            score_wave < context.first_scorable_wave_start
-            or score_wave + WAVE_DURATION_MS > context.final_scoring_cutoff
-        ):
-            room.score_status = "outside-scoring-window"
-            return
-
-    recorded = False
-    for player in room.players:
-        if player.token_hash is None:
-            raise RuntimeError("human player capability hash is missing")
-        key = (score_wave, room.cycle_number, room.reset_attempt, player.token_hash)
-        if key in scored_team_waves:
-            continue
-        scored_team_waves.add(key)
-        events.append(
-            {
-                "cursor": next_cursor,
-                "cycleNumber": room.cycle_number,
-                "earned": player.position,
-                "occurredAt": timestamp_ms,
-                "possible": FINISH_POSITION,
-                "resetAttempt": room.reset_attempt,
-                "tokenHash": player.token_hash,
-                "waveStart": score_wave,
-            }
-        )
-        next_cursor += 1
-        recorded = True
-    room.score_status = "recorded" if recorded else "already-recorded-this-wave"
-
-
 def _finish_match_locked(room: Room, timestamp_ms: int, winner_id: str | None) -> None:
     room.status = "finished"
     room.winner_id = winner_id
@@ -823,7 +887,12 @@ def _finish_match_locked(room: Room, timestamp_ms: int, winner_id: str | None) -
         key = _team_key(room, player.token_hash)
         if active_team_seats.get(key) == player.player_token:
             active_team_seats.pop(key, None)
-    _record_match_locked(room, timestamp_ms)
+    if any(player.is_npc for player in room.players):
+        room.score_status = "practice-npc"
+    elif _room_wave_is_scoreable(room, wave_start(timestamp_ms)):
+        room.score_status = "recorded"
+    else:
+        room.score_status = "outside-scoring-window"
 
 
 def _roll_locked(room: Room, timestamp_ms: int, *, automatic: bool) -> None:
@@ -835,6 +904,7 @@ def _roll_locked(room: Room, timestamp_ms: int, *, automatic: bool) -> None:
     position, transport_from, transport_to = apply_roll(origin, roll)
     player.position = position
     room.turn_number += 1
+    _record_room_progress_locked(room, wave_start(timestamp_ms))
 
     won = position == FINISH_POSITION
     extra_turn = roll == 6 and not won
@@ -855,7 +925,8 @@ def _roll_locked(room: Room, timestamp_ms: int, *, automatic: bool) -> None:
         "transportFrom": transport_from,
         "transportTo": transport_to,
     }
-    room.last_activity_ms = timestamp_ms
+    if not automatic:
+        room.last_activity_ms = timestamp_ms
     if won:
         _finish_match_locked(room, timestamp_ms, player.player_id)
     elif room.turn_number >= MAX_MATCH_TURNS:
@@ -917,6 +988,8 @@ def start_room(
         room.current_player_index = 0
         room.turn_deadline_ms = timestamp_ms + TURN_SECONDS * 1_000
         room.last_activity_ms = timestamp_ms
+        room.scoring_checkpoint_wave = wave_start(timestamp_ms)
+        _record_room_progress_locked(room, room.scoring_checkpoint_wave)
         response = _room_document(room, player, timestamp_ms)
         _cache_action(room, action, response)
         return response
@@ -952,9 +1025,15 @@ def roll_room(
         return response
 
 
-def read_evidence_page(after: int) -> dict[str, object]:
+def read_evidence_page(
+    after: int,
+    current_time_ms: int | None = None,
+) -> dict[str, object]:
     """Return one bounded immutable page to the in-process managed reporter."""
     with state_lock:
+        _checkpoint_scoring_locked(
+            now_ms() if current_time_ms is None else current_time_ms
+        )
         oldest = int(events[0]["cursor"]) if events else next_cursor
         selected = [dict(event) for event in events if int(event["cursor"]) > after][
             :MAX_RESPONSE_EVENTS

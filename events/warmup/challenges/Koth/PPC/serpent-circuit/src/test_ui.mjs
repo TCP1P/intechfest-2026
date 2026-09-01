@@ -32,8 +32,9 @@ test("browser implements create, join, NPC, reconnect, start, state, and roll li
     assert.ok(app.includes(endpoint), `missing ${endpoint}`);
   }
   assert.match(app, /localStorage\.setItem\(SAVED_ROOM_KEY/);
-  assert.match(app, /serpent-circuit-room-v3/);
-  assert.match(app, /raw\.protocolVersion !== 3/);
+  assert.match(app, /serpent-circuit-room-v4/);
+  assert.match(app, /raw\.protocolVersion !== 4/);
+  assert.match(app, /raw\.rules\.length !== 8/);
   assert.match(app, /playerToken: state\.playerToken/);
   assert.doesNotMatch(app, /localStorage\.setItem\([^\n]*capability/i);
   assert.match(app, /elements\.capability\.value = ""/);
