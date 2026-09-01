@@ -30,5 +30,6 @@ container:
   exposePort: 8080
 
 ad:
-  # Managed challenge targets can reach the Internet by repository policy.
-  allowEgress: true
+  # Gameplay needs only rsctf's private managed-reporting route. Keep general
+  # Internet egress disabled so this competitive hill is safe on Docker.
+  allowEgress: false
