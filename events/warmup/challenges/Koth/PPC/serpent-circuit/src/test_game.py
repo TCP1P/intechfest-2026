@@ -54,7 +54,7 @@ class GameTests(unittest.TestCase):
 
     def test_rules_publish_the_multiplayer_contract_and_original_board(self):
         rules = app.rules_document()
-        self.assertEqual(rules["protocolVersion"], 2)
+        self.assertEqual(rules["protocolVersion"], 3)
         self.assertEqual(rules["startPosition"], 0)
         self.assertEqual(rules["finishPosition"], 100)
         self.assertEqual(rules["minPlayers"], 2)
@@ -63,6 +63,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(rules["objective"], "board-progress")
         self.assertEqual(len(rules["transitions"]), 14)
         self.assertFalse(set(app.TRANSITIONS) & set(app.TRANSITIONS.values()))
+        self.assertIn("NPC matches are practice-only", " ".join(rules["rules"]))
         self.assertIn("The first player to reach 100 wins the match.", rules["rules"])
 
     def test_server_applies_ladders_snakes_and_exact_finish(self):
@@ -98,6 +99,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(room["status"], "lobby")
         self.assertEqual([player["name"] for player in room["players"]], ["Alice", "Bob"])
         self.assertTrue(room["players"][0]["isHost"])
+        self.assertTrue(all(not player["isNpc"] for player in room["players"]))
         self.assertNotEqual(host["playerToken"], guest["playerToken"])
         encoded = json.dumps(guest)
         self.assertNotIn(LOCAL_TOKENS[0], encoded)
@@ -157,6 +159,77 @@ class GameTests(unittest.TestCase):
         self.assertEqual(started["status"], "playing")
         self.assertEqual(started["currentPlayerId"], started["you"]["id"])
         self.assertEqual(started["turnDeadline"], 1_830_104)
+
+    def test_lone_host_can_add_one_idempotent_npc_fallback(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            code = host["room"]["code"]
+            added = app.add_npc(code, host["playerToken"], "action_npc_001", 1_800_101)
+            replay = app.add_npc(code, host["playerToken"], "action_npc_001", 1_800_102)
+
+        self.assertEqual(replay, added)
+        self.assertEqual(len(added["players"]), 2)
+        self.assertEqual(added["players"][1]["name"], app.NPC_NAME)
+        self.assertTrue(added["players"][1]["isNpc"])
+        self.assertFalse(added["players"][1]["isHost"])
+        self.assertEqual(len(app.seat_index), 1)
+        self.assertEqual(len(app.active_team_seats), 1)
+        with self.assertRaisesRegex(app.GameError, "already has an NPC") as duplicate:
+            app.add_npc(code, host["playerToken"], "action_npc_002", 1_800_103)
+        self.assertEqual(duplicate.exception.status, 409)
+
+    def test_npc_fallback_rejects_guests_and_nonempty_lobbies(self):
+        host, guest = self.create_two_player_room()
+        code = host["room"]["code"]
+        with self.assertRaisesRegex(app.GameError, "only the room host") as not_host:
+            app.add_npc(code, guest["playerToken"], "action_npc_001", 1_800_102)
+        self.assertEqual(not_host.exception.status, 403)
+        with self.assertRaisesRegex(app.GameError, "only while the host is alone") as occupied:
+            app.add_npc(code, host["playerToken"], "action_npc_002", 1_800_103)
+        self.assertEqual(occupied.exception.status, 409)
+
+    def test_npc_rolls_automatically_after_a_short_server_deadline(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            code = host["room"]["code"]
+            app.add_npc(code, host["playerToken"], "action_npc_001", 1_800_101)
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_102)
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            after_host = app.roll_room(
+                code, host["playerToken"], "action_roll_001", 1_800_103
+            )
+            after_npc = app.room_state(
+                code,
+                host["playerToken"],
+                1_800_103 + app.NPC_TURN_SECONDS * 1_000,
+            )
+
+        npc = next(player for player in after_host["players"] if player["isNpc"])
+        self.assertEqual(after_host["currentPlayerId"], npc["id"])
+        self.assertEqual(
+            after_host["turnDeadline"], 1_800_103 + app.NPC_TURN_SECONDS * 1_000
+        )
+        self.assertEqual(after_npc["lastMove"]["playerId"], npc["id"])
+        self.assertTrue(after_npc["lastMove"]["automatic"])
+        self.assertEqual(after_npc["currentPlayerId"], after_npc["you"]["id"])
+
+    def test_npc_match_is_practice_only_and_emits_no_evidence(self):
+        with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
+            host = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
+            code = host["room"]["code"]
+            app.add_npc(code, host["playerToken"], "action_npc_001", 1_800_101)
+        app.start_room(code, host["playerToken"], "action_start_1", 1_800_102)
+        with app.state_lock:
+            app.rooms[code].players[0].position = 99
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            result = app.roll_room(
+                code, host["playerToken"], "action_roll_001", 1_800_103
+            )
+
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(result["scoreStatus"], "practice-npc")
+        self.assertEqual(app.read_evidence_page(0)["events"], [])
+        self.assertEqual(app.active_team_seats, {})
 
     def test_roll_changes_turn_and_is_idempotent(self):
         host, guest = self.create_two_player_room()
@@ -312,6 +385,9 @@ class GameTests(unittest.TestCase):
             app.publish_managed_context(context)
             room = app.create_room(LOCAL_TOKENS[0], "Alice", 1_800_100)
             authenticate.assert_called_once()
+            app.add_npc(
+                room["room"]["code"], room["playerToken"], "action_npc_001", 1_800_100
+            )
             next_round = reporter.RoundContext(
                 **{
                     **context.__dict__,
@@ -392,7 +468,7 @@ class GameTests(unittest.TestCase):
             with patch.dict(os.environ, MANAGED_ENV, clear=True):
                 status, document = app.health_document()
                 self.assertEqual(status, 200)
-                self.assertEqual(document["protocol"], "serpent-circuit/2")
+                self.assertEqual(document["protocol"], "serpent-circuit/3")
                 self.assertEqual(document["turnSeconds"], 30)
 
                 with patch("reporter.time.monotonic", return_value=100.0):
@@ -424,6 +500,18 @@ class GameTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 201)
                 code = host["room"]["code"]
+                status, npc_room = self.http_json(
+                    server,
+                    "POST",
+                    "/api/rooms/npc",
+                    {
+                        "actionId": "action_npc_001",
+                        "playerToken": host["playerToken"],
+                        "roomCode": code,
+                    },
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(npc_room["players"][1]["isNpc"])
                 status, guest = self.http_json(
                     server,
                     "POST",
@@ -431,7 +519,7 @@ class GameTests(unittest.TestCase):
                     {"name": "Bob", "roomCode": code, "token": LOCAL_TOKENS[1]},
                 )
                 self.assertEqual(status, 201)
-                self.assertEqual(len(guest["room"]["players"]), 2)
+                self.assertEqual(len(guest["room"]["players"]), 3)
 
                 status, malformed = self.http_json(
                     server,

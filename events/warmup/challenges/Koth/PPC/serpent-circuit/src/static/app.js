@@ -1,12 +1,13 @@
 import { makeServerClock, serverNow } from "/assets/clock.mjs";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const SAVED_ROOM_KEY = "serpent-circuit-room-v2";
+const SAVED_ROOM_KEY = "serpent-circuit-room-v3";
 const POLL_INTERVAL_MS = 1_000;
 const DIE_FACES = ["?", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const VALID_COLORS = new Set(["coral", "blue", "green", "purple"]);
 
 const elements = {
+  addNpc: document.querySelector("#add-npc"),
   board: document.querySelector("#board"),
   boardSummary: document.querySelector("#board-summary"),
   capability: document.querySelector("#capability"),
@@ -19,6 +20,7 @@ const elements = {
   joinRoom: document.querySelector("#join-room"),
   lastMove: document.querySelector("#last-move"),
   newRoom: document.querySelector("#new-room"),
+  npcHelp: document.querySelector("#npc-help"),
   playerCount: document.querySelector("#player-count"),
   playerList: document.querySelector("#player-list"),
   playerName: document.querySelector("#player-name"),
@@ -90,7 +92,7 @@ function normalizeRules(raw) {
   if (
     raw.name !== "Serpent Circuit"
     || raw.objective !== "board-progress"
-    || raw.protocolVersion !== 2
+    || raw.protocolVersion !== 3
     || raw.boardSize !== 100
     || raw.startPosition !== 0
     || raw.finishPosition !== 100
@@ -101,7 +103,7 @@ function normalizeRules(raw) {
   ) {
     throw new Error("The server returned a different Serpent Circuit contract.");
   }
-  if (!Array.isArray(raw.rules) || raw.rules.length !== 6) {
+  if (!Array.isArray(raw.rules) || raw.rules.length !== 7) {
     throw new Error("The server returned invalid game instructions.");
   }
   const origins = new Set();
@@ -138,18 +140,24 @@ function normalizePlayer(raw) {
     !raw
     || typeof raw !== "object"
     || Array.isArray(raw)
-    || Object.keys(raw).sort().join("|") !== "color|id|isHost|name|position"
+    || Object.keys(raw).sort().join("|") !== "color|id|isHost|isNpc|name|position"
   ) {
     throw new Error("The server returned an invalid player.");
   }
   const color = boundedString(raw.color, "player color", 16);
-  if (!VALID_COLORS.has(color) || typeof raw.isHost !== "boolean") {
+  if (
+    !VALID_COLORS.has(color)
+    || typeof raw.isHost !== "boolean"
+    || typeof raw.isNpc !== "boolean"
+    || (raw.isHost && raw.isNpc)
+  ) {
     throw new Error("The server returned invalid player metadata.");
   }
   return {
     color,
     id: boundedString(raw.id, "player ID"),
     isHost: raw.isHost,
+    isNpc: raw.isNpc,
     name: boundedString(raw.name, "player name", 48),
     position: integer(raw.position, "player position", 0, 100),
   };
@@ -234,7 +242,20 @@ function normalizeRoom(raw) {
   }
   const players = raw.players.map(normalizePlayer);
   const ids = new Set(players.map((player) => player.id));
-  if (ids.size !== players.length || !ids.has(raw.you.id)) {
+  const localPlayer = players.find((player) => player.id === raw.you.id);
+  if (
+    ids.size !== players.length
+    || !localPlayer
+    || localPlayer.isNpc
+    || players.filter((player) => player.isNpc).length > 1
+    || ![
+      "pending",
+      "recorded",
+      "already-recorded-this-wave",
+      "outside-scoring-window",
+      "practice-npc",
+    ].includes(raw.scoreStatus)
+  ) {
     throw new Error("The server returned an invalid room roster.");
   }
   const currentPlayerId = raw.currentPlayerId === null
@@ -249,6 +270,8 @@ function normalizeRoom(raw) {
     || (raw.status === "playing" && currentPlayerId === null)
     || (raw.status !== "playing" && currentPlayerId !== null)
     || (raw.status !== "finished" && winnerId !== null)
+    || (raw.status === "finished" && players.some((player) => player.isNpc)
+      && raw.scoreStatus !== "practice-npc")
   ) {
     throw new Error("The server returned an inconsistent match state.");
   }
@@ -432,8 +455,10 @@ function playerById(playerId) {
 }
 
 function playerLabel(player) {
-  const suffix = player.id === state.room.you.id ? " (you)" : "";
-  return `${player.name}${suffix}`;
+  const labels = [];
+  if (player.isNpc) labels.push("NPC");
+  if (player.id === state.room.you.id) labels.push("you");
+  return labels.length ? `${player.name} (${labels.join(", ")})` : player.name;
 }
 
 function renderPieces() {
@@ -485,6 +510,7 @@ function renderPlayers() {
     const role = document.createElement("small");
     const tags = [];
     if (player.isHost) tags.push("Host");
+    if (player.isNpc) tags.push("NPC");
     if (player.id === state.room.currentPlayerId) tags.push("Current turn");
     if (player.id === state.room.winnerId) tags.push("Winner");
     role.textContent = tags.join(" · ") || "Player";
@@ -522,11 +548,24 @@ function describeLastMove() {
   return `${description}.`;
 }
 
+function matchOutcomeMessage() {
+  const winner = state.room.winnerId ? playerById(state.room.winnerId) : null;
+  const result = winner ? `${playerLabel(winner)} won the match!` : "The match ended in a draw.";
+  return state.room.scoreStatus === "practice-npc"
+    ? `${result} NPC practice matches are not recorded on the Leaderboard.`
+    : result;
+}
+
 function renderTurn() {
   const room = state.room;
   const you = playerById(room.you.id);
   const host = room.players.find((player) => player.isHost);
+  const hasNpc = room.players.some((player) => player.isNpc);
+  const canAddNpc = room.status === "lobby" && you.isHost && room.players.length === 1;
   elements.newRoom.hidden = room.status !== "finished";
+  elements.addNpc.hidden = !canAddNpc;
+  elements.addNpc.disabled = state.busy;
+  elements.npcHelp.hidden = !canAddNpc && !hasNpc;
 
   if (room.status === "lobby") {
     elements.die.textContent = "?";
@@ -535,7 +574,9 @@ function renderTurn() {
       : `${room.players.length} of ${room.minPlayers} joined`;
     if (you.isHost) {
       const ready = room.players.length >= room.minPlayers;
-      elements.turnLabel.textContent = ready ? "Everyone ready?" : "Waiting for more players";
+      elements.turnLabel.textContent = ready
+        ? hasNpc ? "Practice opponent ready" : "Everyone ready?"
+        : "Waiting for more players";
       elements.gameAction.textContent = ready ? "Start match" : "Waiting for players";
       elements.gameAction.disabled = !ready || state.busy;
     } else {
@@ -549,9 +590,9 @@ function renderTurn() {
   if (room.status === "finished") {
     const winner = room.winnerId ? playerById(room.winnerId) : null;
     elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "—";
-    elements.turnCountdown.textContent = room.scoreStatus === "recorded"
-      ? "Result recorded"
-      : "Match complete";
+    elements.turnCountdown.textContent = room.scoreStatus === "practice-npc"
+      ? "Practice match · not scored"
+      : room.scoreStatus === "recorded" ? "Result recorded" : "Match complete";
     elements.turnLabel.textContent = winner ? `${playerLabel(winner)} wins!` : "Match ended in a draw";
     elements.gameAction.textContent = "Game over";
     elements.gameAction.disabled = true;
@@ -561,10 +602,12 @@ function renderTurn() {
   const current = playerById(room.currentPlayerId);
   const isYourTurn = current.id === room.you.id;
   elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "?";
-  elements.turnLabel.textContent = isYourTurn
-    ? "Your turn — roll the dice"
-    : `${current.name}'s turn`;
-  elements.gameAction.textContent = isYourTurn ? "Roll dice" : "Waiting for roll";
+  elements.turnLabel.textContent = current.isNpc
+    ? `${current.name} is thinking…`
+    : isYourTurn ? "Your turn — roll the dice" : `${current.name}'s turn`;
+  elements.gameAction.textContent = current.isNpc
+    ? "NPC is rolling"
+    : isYourTurn ? "Roll dice" : "Waiting for roll";
   elements.gameAction.disabled = !isYourTurn || state.busy;
 }
 
@@ -585,9 +628,12 @@ function renderCountdown() {
 function renderRoom() {
   const room = state.room;
   elements.roomCodeLabel.textContent = room.code;
+  const hasNpc = room.players.some((player) => player.isNpc);
   elements.roomHelp.textContent = room.status === "lobby"
-    ? "Share this code so friends can join."
-    : `Turn ${room.turnNumber} · server-authoritative match`;
+    ? hasNpc
+      ? "Circuit Bot joined. This room is now practice-only."
+      : "Share this code so friends can join."
+    : `${hasNpc ? "Practice room" : "Ranked room"} · Turn ${room.turnNumber} · server-authoritative match`;
   renderPlayers();
   renderPieces();
   renderTurn();
@@ -760,10 +806,34 @@ async function runGameAction() {
       },
     );
     applyRoom(response.document, response.sent, response.received);
-    setStatus(start ? "Match started. Good luck!" : describeLastMove(), "success");
     if (state.room.status === "finished") {
+      setStatus(matchOutcomeMessage(), "success");
       stopPolling();
+    } else {
+      setStatus(start ? "Match started. Good luck!" : describeLastMove(), "success");
     }
+  } catch (error) {
+    setStatus(error.message, "error");
+    await pollRoom();
+  } finally {
+    state.busy = false;
+    if (state.room) renderTurn();
+  }
+}
+
+async function addNpcOpponent() {
+  if (state.busy || !state.room) return;
+  try {
+    state.busy = true;
+    renderTurn();
+    setStatus("Adding Circuit Bot to this practice room…");
+    const response = await requestJson("/api/rooms/npc", {
+      actionId: actionId(),
+      playerToken: state.playerToken,
+      roomCode: state.roomCode,
+    });
+    applyRoom(response.document, response.sent, response.received);
+    setStatus("Circuit Bot joined. You can start this practice match now.", "success");
   } catch (error) {
     setStatus(error.message, "error");
     await pollRoom();
@@ -790,8 +860,7 @@ async function pollRoom() {
       setStatus(describeLastMove(), "success");
     }
     if (state.room.status === "finished") {
-      const winner = state.room.winnerId ? playerById(state.room.winnerId) : null;
-      setStatus(winner ? `${playerLabel(winner)} won the match!` : "The match ended in a draw.", "success");
+      setStatus(matchOutcomeMessage(), "success");
       stopPolling();
     }
   } catch (error) {
@@ -883,6 +952,7 @@ elements.roomForm.addEventListener("submit", (event) => {
   enterRoom("join");
 });
 elements.gameAction.addEventListener("click", runGameAction);
+elements.addNpc.addEventListener("click", addNpcOpponent);
 elements.copyCode.addEventListener("click", copyRoomCode);
 elements.reconnectRoom.addEventListener("click", reconnect);
 elements.newRoom.addEventListener("click", () => {

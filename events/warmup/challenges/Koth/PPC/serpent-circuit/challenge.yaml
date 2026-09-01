@@ -7,10 +7,15 @@ description: |
   turns rolling a server-generated die. Climb ladders, slide down snakes, roll
   exactly onto square 100, and remember that a six grants another turn.
 
-  Authenticate each seat with its current KotH capability. Expired turns are
-  rolled automatically after 30 seconds, so every match keeps moving. When a
-  match finishes, the managed server reports each team's bounded
-  `board-progress` ratio for that scoring wave. The sole greatest positive
+  If nobody else joins, the host can add one server-controlled Circuit Bot and
+  play immediately. NPC rooms are clearly marked practice-only and never
+  report Leaderboard evidence; play against authenticated human teams for a
+  scored match.
+
+  Authenticate each human seat with its current KotH capability. Expired human
+  turns are rolled automatically after 30 seconds, so every match keeps
+  moving. When a human-only match finishes, the managed server reports each
+  team's bounded `board-progress` ratio for that scoring wave. The sole greatest positive
   result earns the Crown; an exact tie earns no Crown. The game retains only
   authenticated capability hashes and never reports platform points or raw
   capabilities.

@@ -16,12 +16,15 @@ test("room entry uses labeled semantic controls and live status", () => {
   assert.match(html, /id="status"[^>]*role="status"[^>]*aria-live="polite"/);
   assert.match(html, /<button id="create-room"[^>]*type="button">/);
   assert.match(html, /<button id="join-room"[^>]*type="submit">/);
+  assert.match(html, /<button id="add-npc"[^>]*type="button"[^>]*hidden>/);
+  assert.match(html, /id="npc-help"[\s\S]*?NPC matches are practice-only/);
 });
 
-test("browser implements create, join, reconnect, start, state, and roll lifecycle", () => {
+test("browser implements create, join, NPC, reconnect, start, state, and roll lifecycle", () => {
   for (const endpoint of [
     "/api/rooms",
     "/api/rooms/join",
+    "/api/rooms/npc",
     "/api/rooms/state",
     "/api/rooms/start",
     "/api/rooms/roll",
@@ -29,6 +32,8 @@ test("browser implements create, join, reconnect, start, state, and roll lifecyc
     assert.ok(app.includes(endpoint), `missing ${endpoint}`);
   }
   assert.match(app, /localStorage\.setItem\(SAVED_ROOM_KEY/);
+  assert.match(app, /serpent-circuit-room-v3/);
+  assert.match(app, /raw\.protocolVersion !== 3/);
   assert.match(app, /playerToken: state\.playerToken/);
   assert.doesNotMatch(app, /localStorage\.setItem\([^\n]*capability/i);
   assert.match(app, /elements\.capability\.value = ""/);
@@ -51,6 +56,9 @@ test("turn state is announced without relying only on color", () => {
   assert.match(html, /id="last-move"[^>]*aria-live="polite"/);
   assert.match(app, /tags\.push\("Current turn"\)/);
   assert.match(app, /tags\.push\("Winner"\)/);
+  assert.match(app, /tags\.push\("NPC"\)/);
+  assert.match(app, /current\.isNpc[\s\S]*?NPC is rolling/);
+  assert.match(app, /scoreStatus === "practice-npc"/);
   assert.match(app, /elements\.turnCountdown\.textContent = `\$\{Math\.ceil/);
   assert.match(app, /move\.automatic \? "auto-rolled" : "rolled"/);
   assert.match(app, /piece\.textContent = String\(index \+ 1\)/);

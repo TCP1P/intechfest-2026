@@ -425,6 +425,14 @@ input[aria-invalid="true"] {
   border-color: var(--blue-dark);
 }
 
+.button-npc {
+  width: 100%;
+  margin-top: 0.7rem;
+  color: #173f2b;
+  background: var(--green-soft);
+  border-color: var(--green);
+}
+
 .reconnect-button,
 .text-button {
   display: block;
@@ -686,6 +694,14 @@ input[aria-invalid="true"] {
 
 .roll-button {
   width: 100%;
+}
+
+.npc-help {
+  margin: 0.65rem 0 0;
+  color: #4e2c68;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .last-move {

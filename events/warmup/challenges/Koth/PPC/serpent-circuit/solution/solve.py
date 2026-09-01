@@ -53,7 +53,7 @@ def seat_values(response):
 def solve(base_url, capabilities, max_rolls):
     """Create a room, play every supplied seat, and return the match result."""
     rules = request_json(base_url, "/api/rules")
-    if rules.get("protocolVersion") != 2 or rules.get("minPlayers") != 2:
+    if rules.get("protocolVersion") != 3 or rules.get("minPlayers") != 2:
         raise ValueError("target does not expose the multiplayer contract")
 
     host = request_json(

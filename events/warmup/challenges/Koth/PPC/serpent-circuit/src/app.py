@@ -29,8 +29,8 @@ from reporter import start_managed_reporter
 
 
 NAME = "Serpent Circuit"
-PROTOCOL = "serpent-circuit/2"
-PROTOCOL_VERSION = 2
+PROTOCOL = "serpent-circuit/3"
+PROTOCOL_VERSION = 3
 PORT = 8080
 BOARD_SIZE = 100
 START_POSITION = 0
@@ -38,6 +38,7 @@ FINISH_POSITION = 100
 MIN_PLAYERS = 2
 MAX_PLAYERS = 4
 TURN_SECONDS = 30
+NPC_TURN_SECONDS = 1
 MAX_MATCH_TURNS = 1_000
 SCORING_WAVE_SECONDS = 60
 WAVE_DURATION_MS = SCORING_WAVE_SECONDS * 1_000
@@ -45,6 +46,7 @@ OBJECTIVE_ID = "board-progress"
 ROOM_CODE_LENGTH = 6
 ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PLAYER_COLORS = ("coral", "blue", "green", "purple")
+NPC_NAME = "Circuit Bot"
 MAX_NAME_BYTES = 48
 MAX_REQUEST_BYTES = 4 * 1_024
 MAX_REQUEST_STREAM_BYTES = 12 * 1_024
@@ -126,11 +128,12 @@ class CapabilityCandidate:
 @dataclass
 class Player:
     player_id: str
-    player_token: str
-    token_hash: str
+    player_token: str | None
+    token_hash: str | None
     name: str
     color: str
     position: int = START_POSITION
+    is_npc: bool = False
 
 
 @dataclass
@@ -212,6 +215,7 @@ def rules_document() -> dict[str, object]:
             "Ladders climb and snakes slide immediately after a legal move.",
             "A roll must land exactly on 100; an overshoot leaves the piece in place.",
             "Rolling a six grants another turn, and an expired turn is rolled automatically.",
+            "A lone host may add one Circuit Bot; NPC matches are practice-only and never report Leaderboard evidence.",
             "The first player to reach 100 wins the match.",
         ],
         "scoringWaveSeconds": SCORING_WAVE_SECONDS,
@@ -476,7 +480,10 @@ def _managed_room_is_current(room: Room, timestamp_ms: int) -> None:
         or room.reset_attempt != context.reset_attempt
     ):
         raise GameError(410, "the scoring lifecycle changed")
-    if any(player.token_hash not in context.eligible_hashes for player in room.players):
+    if any(
+        not player.is_npc and player.token_hash not in context.eligible_hashes
+        for player in room.players
+    ):
         raise GameError(403, "a room capability is no longer current")
 
 
@@ -493,6 +500,10 @@ def _drop_room_locked(room_code: str) -> None:
     if room is None:
         return
     for player in room.players:
+        if player.is_npc:
+            continue
+        if player.player_token is None or player.token_hash is None:
+            raise RuntimeError("human player credentials are missing")
         seat_index.pop(player.player_token, None)
         key = _team_key(room, player.token_hash)
         if active_team_seats.get(key) == player.player_token:
@@ -562,6 +573,7 @@ def _room_document(room: Room, player: Player, timestamp_ms: int) -> dict[str, o
                 "color": item.color,
                 "id": item.player_id,
                 "isHost": item.player_id == room.host_player_id,
+                "isNpc": item.is_npc,
                 "name": item.name,
                 "position": item.position,
             }
@@ -578,6 +590,8 @@ def _room_document(room: Room, player: Player, timestamp_ms: int) -> dict[str, o
 
 
 def _seat_response(room: Room, player: Player, timestamp_ms: int) -> dict[str, object]:
+    if player.player_token is None:
+        raise RuntimeError("an NPC cannot receive a private player token")
     return {
         "playerToken": player.player_token,
         "room": _room_document(room, player, timestamp_ms),
@@ -709,8 +723,58 @@ def _cache_action(room: Room, action_id: str, response: dict[str, object]) -> No
         room.actions.popitem(last=False)
 
 
+def add_npc(
+    room_code: object,
+    player_token: object,
+    action_id: object,
+    timestamp_ms: int | None = None,
+) -> dict[str, object]:
+    code = _validate_room_code(room_code)
+    token = _validate_player_token(player_token)
+    action = _validate_action_id(action_id)
+    with state_lock:
+        timestamp_ms = now_ms() if timestamp_ms is None else timestamp_ms
+        _prune_state_locked(timestamp_ms)
+        room, player = _authorized_room_locked(code, token)
+        _managed_room_is_current(room, timestamp_ms)
+        cached = room.actions.get(action)
+        if cached is not None:
+            return deepcopy(cached)
+        if player.player_id != room.host_player_id:
+            raise GameError(403, "only the room host can add an NPC")
+        if room.status != "lobby":
+            raise GameError(409, "the match has already started")
+        if any(item.is_npc for item in room.players):
+            raise GameError(409, "this room already has an NPC")
+        if len(room.players) != 1:
+            raise GameError(409, "the NPC fallback is available only while the host is alone")
+
+        player_ids = {
+            existing_player.player_id
+            for existing_room in rooms.values()
+            for existing_player in existing_room.players
+        }
+        npc = Player(
+            player_id=_new_secret(player_ids),
+            player_token=None,
+            token_hash=None,
+            name=NPC_NAME,
+            color=PLAYER_COLORS[len(room.players)],
+            is_npc=True,
+        )
+        room.players.append(npc)
+        room.last_activity_ms = timestamp_ms
+        rooms.move_to_end(code)
+        response = _room_document(room, player, timestamp_ms)
+        _cache_action(room, action, response)
+        return response
+
+
 def _record_match_locked(room: Room, timestamp_ms: int) -> None:
     global next_cursor
+    if any(player.is_npc for player in room.players):
+        room.score_status = "practice-npc"
+        return
     score_wave = wave_start(timestamp_ms)
     if room.context_opaque is not None:
         context = _current_managed_context()
@@ -723,6 +787,8 @@ def _record_match_locked(room: Room, timestamp_ms: int) -> None:
 
     recorded = False
     for player in room.players:
+        if player.token_hash is None:
+            raise RuntimeError("human player capability hash is missing")
         key = (score_wave, room.cycle_number, room.reset_attempt, player.token_hash)
         if key in scored_team_waves:
             continue
@@ -750,6 +816,10 @@ def _finish_match_locked(room: Room, timestamp_ms: int, winner_id: str | None) -
     room.finished_at_ms = timestamp_ms
     room.turn_deadline_ms = None
     for player in room.players:
+        if player.is_npc:
+            continue
+        if player.player_token is None or player.token_hash is None:
+            raise RuntimeError("human player credentials are missing")
         key = _team_key(room, player.token_hash)
         if active_team_seats.get(key) == player.player_token:
             active_team_seats.pop(key, None)
@@ -771,7 +841,9 @@ def _roll_locked(room: Room, timestamp_ms: int, *, automatic: bool) -> None:
     if not won and room.turn_number < MAX_MATCH_TURNS:
         if not extra_turn:
             room.current_player_index = (room.current_player_index + 1) % len(room.players)
-        room.turn_deadline_ms = timestamp_ms + TURN_SECONDS * 1_000
+        next_player = room.players[room.current_player_index]
+        turn_seconds = NPC_TURN_SECONDS if next_player.is_npc else TURN_SECONDS
+        room.turn_deadline_ms = timestamp_ms + turn_seconds * 1_000
 
     room.last_move = {
         "automatic": automatic,
@@ -1050,6 +1122,14 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_action(
                 {"actionId", "playerToken", "roomCode"},
                 lambda value: start_room(
+                    value["roomCode"], value["playerToken"], value["actionId"]
+                ),
+            )
+            return
+        if request.path == "/api/rooms/npc":
+            self._handle_action(
+                {"actionId", "playerToken", "roomCode"},
+                lambda value: add_npc(
                     value["roomCode"], value["playerToken"], value["actionId"]
                 ),
             )
