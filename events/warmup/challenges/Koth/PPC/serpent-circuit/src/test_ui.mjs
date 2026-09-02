@@ -8,33 +8,29 @@ const [app, html, styles] = await Promise.all([
   readFile(new URL("./static/styles.css", import.meta.url), "utf8"),
 ]);
 
-test("room entry uses labeled semantic controls and live status", () => {
+test("matchmaking entry uses labeled semantic controls and live status", () => {
   assert.match(html, /<form id="room-form" novalidate>/);
   assert.match(html, /<label for="player-name">Display name<\/label>/);
   assert.match(html, /<label for="capability">Current KotH capability<\/label>/);
-  assert.match(html, /<label for="room-code">Room code<\/label>/);
   assert.match(html, /id="status"[^>]*role="status"[^>]*aria-live="polite"/);
-  assert.match(html, /<button id="create-room"[^>]*type="button">/);
-  assert.match(html, /<button id="join-room"[^>]*type="submit">/);
-  assert.match(html, /<button id="add-npc"[^>]*type="button"[^>]*hidden>/);
-  assert.match(html, /id="npc-help"[\s\S]*?NPC matches are practice-only/);
+  assert.match(html, /<button id="join-queue"[^>]*type="submit">/);
+  assert.doesNotMatch(html, /room code|create a room|add npc/i);
 });
 
-test("browser implements create, join, NPC, reconnect, start, state, and roll lifecycle", () => {
+test("browser implements queue, reconnect, state, and roll lifecycle", () => {
   for (const endpoint of [
-    "/api/rooms",
-    "/api/rooms/join",
-    "/api/rooms/npc",
-    "/api/rooms/state",
-    "/api/rooms/start",
-    "/api/rooms/roll",
+    "/api/matchmaking",
+    "/api/matchmaking/state",
+    "/api/matchmaking/roll",
   ]) {
     assert.ok(app.includes(endpoint), `missing ${endpoint}`);
   }
+  assert.doesNotMatch(app, /\/api\/rooms|roomCode|addNpc|start_room/);
   assert.match(app, /localStorage\.setItem\(SAVED_ROOM_KEY/);
-  assert.match(app, /serpent-circuit-room-v4/);
-  assert.match(app, /raw\.protocolVersion !== 4/);
-  assert.match(app, /raw\.rules\.length !== 8/);
+  assert.match(app, /serpent-circuit-match-v5/);
+  assert.match(app, /raw\.protocolVersion !== 5/);
+  assert.match(app, /raw\.minPlayers !== 4/);
+  assert.match(app, /raw\.matchSeconds !== 300/);
   assert.match(app, /playerToken: state\.playerToken/);
   assert.doesNotMatch(app, /localStorage\.setItem\([^\n]*capability/i);
   assert.match(app, /elements\.capability\.value = ""/);
@@ -53,21 +49,20 @@ test("classic board artwork and live pieces derive from server state", () => {
   assert.match(styles, /\.piece-blue\s*{/);
 });
 
-test("turn state is announced without relying only on color", () => {
+test("queue and turn state are announced without relying only on color", () => {
   assert.match(html, /id="last-move"[^>]*aria-live="polite"/);
   assert.match(app, /tags\.push\("Current turn"\)/);
   assert.match(app, /tags\.push\("Winner"\)/);
-  assert.match(app, /tags\.push\("NPC"\)/);
-  assert.match(app, /current\.isNpc[\s\S]*?NPC is rolling/);
-  assert.match(app, /scoreStatus === "practice-npc"/);
-  assert.match(app, /elements\.turnCountdown\.textContent = `\$\{Math\.ceil/);
+  assert.match(app, /room\.queueAhead > 0/);
+  assert.match(app, /Match starts automatically/);
+  assert.match(app, /state\.room\.matchDeadline/);
   assert.match(app, /move\.automatic \? "auto-rolled" : "rolled"/);
   assert.match(app, /piece\.textContent = String\(index \+ 1\)/);
 });
 
 test("validation exposes invalid fields and keyboard focus remains visible", () => {
   assert.match(app, /elements\.capability\.setAttribute\("aria-invalid"/);
-  assert.match(app, /elements\.roomCode\.setAttribute\(/);
+  assert.match(app, /elements\.playerName\.setAttribute\("aria-invalid"/);
   assert.match(styles, /input\[aria-invalid="true"\]/);
   assert.match(styles, /button:focus-visible,[\s\S]*?outline: 3px solid/);
   assert.doesNotMatch(styles, /outline:\s*none/);

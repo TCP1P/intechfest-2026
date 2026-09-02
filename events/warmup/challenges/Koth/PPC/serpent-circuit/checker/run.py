@@ -22,6 +22,7 @@ HEALTH_KEYS = {
     "reporter",
     "rooms",
     "scoringReady",
+    "matchSeconds",
     "turnSeconds",
 }
 REPORTER_KEYS = {"alive", "consecutiveFailures", "state"}
@@ -34,6 +35,7 @@ RULE_KEYS = {
     "finishPosition",
     "minPlayers",
     "maxPlayers",
+    "matchSeconds",
     "turnSeconds",
     "scoringWaveSeconds",
     "objective",
@@ -58,14 +60,14 @@ EXPECTED_TRANSITIONS = [
     {"from": 97, "to": 76, "kind": "snake"},
 ]
 EXPECTED_RULES = [
-    "Create a private room or join one with its six-character code.",
-    "Two to four players take turns rolling one server-generated six-sided die.",
+    "Submit one current KotH capability to enter the server-controlled FIFO queue.",
+    "Every match has exactly four distinct authenticated teams and starts automatically when it reaches the front of the queue.",
+    "Players take turns rolling one server-generated six-sided die.",
     "Ladders climb and snakes slide immediately after a legal move.",
     "A roll must land exactly on 100; an overshoot leaves the piece in place.",
     "Rolling a six grants another turn, and an expired turn is rolled automatically.",
-    "A lone host may add one Circuit Bot; NPC matches are practice-only and never report Leaderboard evidence.",
     "During a human-only match, each completed 60-second scoring tick records every team's furthest server-confirmed square in that tick.",
-    "The first player to reach 100 wins the match.",
+    "The first player to reach 100 wins; otherwise the sole player on the highest square wins when the five-minute match deadline expires.",
 ]
 
 
@@ -125,7 +127,7 @@ def _check_capability_rejection(context: KothContext) -> None:
         )
         connection.request(
             "POST",
-            "/api/rooms",
+            "/api/matchmaking",
             body=body,
             headers={
                 "Accept": "application/json",
@@ -174,10 +176,11 @@ def _validate_health(document: dict[str, Any]) -> None:
         document["scoringReady"], bool
     ):
         raise Mumble("the service did not report a managed lifecycle state")
-    if document["protocol"] != "serpent-circuit/4":
+    if document["protocol"] != "serpent-circuit/5":
         raise Mumble("the health response reported the wrong protocol")
     if (
         document["turnSeconds"] != 30
+        or document["matchSeconds"] != 300
         or not _is_integer(document["rooms"])
         or not 0 <= document["rooms"] <= 500
         or not _is_integer(document["players"])
@@ -228,12 +231,13 @@ def _validate_rules(document: dict[str, Any]) -> None:
         raise Mumble("the rules response shape was incorrect")
     expected_scalars = {
         "name": "Serpent Circuit",
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "boardSize": 100,
         "startPosition": 0,
         "finishPosition": 100,
-        "minPlayers": 2,
+        "minPlayers": 4,
         "maxPlayers": 4,
+        "matchSeconds": 300,
         "turnSeconds": 30,
         "scoringWaveSeconds": 60,
         "objective": "board-progress",

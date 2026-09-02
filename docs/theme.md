@@ -27,12 +27,12 @@ Leaderboard game or suggest that ordinary content points are scored.
 ## Serpent Circuit
 
 Serpent Circuit is an original server-authoritative multiplayer Snakes & Ladders game. Use
-`room`, `turn`, `roll`, `snake`, `ladder`, `match`, and `Crown`. Two to four seats share one
-private room and race to square 100 under traditional rules. A lone host may add the
-server-controlled `Circuit Bot`; label that room as practice-only because it emits no
-Leaderboard evidence. The browser board uses CSS and text labels rather than copied artwork,
-exposes the same rules as the API, and must remain keyboard-operable, screen-reader
-understandable, and usable at 320 px.
+`queue`, `turn`, `roll`, `snake`, `ladder`, `match`, and `Crown`. The server assigns exactly
+four authenticated teams per FIFO group, runs one five-minute match at a time, and starts the
+next full group automatically. A unique highest square wins at the deadline when nobody
+reaches 100. The browser board uses CSS and text labels rather than copied artwork, exposes
+the same rules as the API, and must remain keyboard-operable, screen-reader understandable,
+and usable at 320 px.
 
 The gameplay concept was requested with
 [`MichaelDepp/snake-ladder` at `7bf22a3`](https://github.com/MichaelDepp/snake-ladder/tree/7bf22a3d7f14c18984ab67782531fed1a297169a)

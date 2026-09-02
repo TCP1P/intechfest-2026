@@ -20,8 +20,9 @@ VALID_HEALTH = {
     "name": "Serpent Circuit",
     "status": "ok",
     "mode": "managed",
+    "matchSeconds": 300,
     "players": 0,
-    "protocol": "serpent-circuit/4",
+    "protocol": "serpent-circuit/5",
     "reporter": {
         "alive": True,
         "consecutiveFailures": 0,
@@ -33,12 +34,13 @@ VALID_HEALTH = {
 }
 VALID_RULES = {
     "name": "Serpent Circuit",
-    "protocolVersion": 4,
+    "protocolVersion": 5,
     "boardSize": 100,
     "startPosition": 0,
     "finishPosition": 100,
-    "minPlayers": 2,
+    "minPlayers": 4,
     "maxPlayers": 4,
+    "matchSeconds": 300,
     "turnSeconds": 30,
     "scoringWaveSeconds": 60,
     "objective": "board-progress",
@@ -95,7 +97,7 @@ class FakeConnection:
                 sort_keys=True,
             ).encode()
             if (
-                path != "/api/rooms"
+                path != "/api/matchmaking"
                 or body != expected_body
                 or headers
                 != {
@@ -138,7 +140,7 @@ class SerpentCheckerTests(unittest.TestCase):
         FakeConnection.routes = {
             "/healthz": FakeResponse(VALID_HEALTH),
             "/api/rules": FakeResponse(VALID_RULES),
-            "/api/rooms": FakeResponse(
+            "/api/matchmaking": FakeResponse(
                 {"error": "invalid current KotH capability"}, status=403
             ),
         }
@@ -176,7 +178,7 @@ class SerpentCheckerTests(unittest.TestCase):
         }
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/rooms"] = FakeResponse(
+        FakeConnection.routes["/api/matchmaking"] = FakeResponse(
             {"error": "the scoring roster is not ready"}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 0)
@@ -217,7 +219,7 @@ class SerpentCheckerTests(unittest.TestCase):
         preactivation = dict(VALID_HEALTH)
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/rooms"] = FakeResponse(
+        FakeConnection.routes["/api/matchmaking"] = FakeResponse(
             {"error": "managed gameplay is not configured"}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 1)
@@ -226,13 +228,13 @@ class SerpentCheckerTests(unittest.TestCase):
         preactivation = dict(VALID_HEALTH)
         preactivation["scoringReady"] = False
         FakeConnection.routes["/healthz"] = FakeResponse(preactivation)
-        FakeConnection.routes["/api/rooms"] = FakeResponse(
+        FakeConnection.routes["/api/matchmaking"] = FakeResponse(
             {"error": "the scoring roster is not ready", "retry": True}, status=503
         )
         self.assertEqual(self.run_verdict(FakeConnection), 1)
 
     def test_unknown_null_capability_response_returns_mumble(self) -> None:
-        FakeConnection.routes["/api/rooms"] = FakeResponse(None, status=500)
+        FakeConnection.routes["/api/matchmaking"] = FakeResponse(None, status=500)
         self.assertEqual(self.run_verdict(FakeConnection), 1)
 
     def test_unreachable_service_returns_offline(self) -> None:

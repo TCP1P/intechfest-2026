@@ -31,11 +31,11 @@
       <section id="entry-panel" class="entry-layout" aria-labelledby="entry-title" hidden>
         <article class="panel welcome-card">
           <div class="panel-heading">
-            <p class="kicker">Private rooms · 2–4 seats</p>
-            <h2 id="entry-title">Play Snakes &amp; Ladders with your friends</h2>
+            <p class="kicker">Fair matchmaking · exactly 4 teams</p>
+            <h2 id="entry-title">Enter the Serpent Circuit queue</h2>
             <p>
-              Create a table and share its room code, or enter a code from another player.
-              Every move is rolled and confirmed by the game server.
+              The server assigns teams in arrival order. Nobody can choose their opponents,
+              and a match starts automatically when four authenticated teams are ready.
             </p>
           </div>
 
@@ -74,45 +74,20 @@
 
             <div class="room-actions">
               <div class="action-card create-card">
-                <span class="action-icon" aria-hidden="true">＋</span>
-                <div>
-                  <h3>Create a room</h3>
-                  <p>Invite up to three players, or add an NPC if nobody joins.</p>
-                </div>
-                <button id="create-room" class="button button-primary" type="button">
-                  Create room
-                </button>
-              </div>
-
-              <div class="action-divider" aria-hidden="true"><span>or</span></div>
-
-              <div class="action-card join-card">
                 <span class="action-icon" aria-hidden="true">↗</span>
                 <div>
-                  <h3>Join a room</h3>
-                  <p>Ask the host for the six-character room code.</p>
+                  <h3>Join matchmaking</h3>
+                  <p>Keep this page open while you wait. Your capability can hold only one active seat.</p>
                 </div>
-                <label for="room-code">Room code</label>
-                <input
-                  id="room-code"
-                  name="room-code"
-                  class="room-code-input"
-                  type="text"
-                  inputmode="text"
-                  autocomplete="off"
-                  spellcheck="false"
-                  maxlength="6"
-                  placeholder="ABC234"
-                >
-                <button id="join-room" class="button button-secondary" type="submit">
-                  Join room
+                <button id="join-queue" class="button button-primary" type="submit">
+                  Join queue
                 </button>
               </div>
             </div>
           </form>
 
           <button id="reconnect-room" class="reconnect-button" type="button" hidden>
-            Reconnect to saved room
+            Reconnect to saved match
           </button>
         </article>
 
@@ -120,9 +95,9 @@
           <p class="kicker">How to play</p>
           <h2 id="quick-rules-title">Race to square 100</h2>
           <ol class="rule-steps">
-            <li><span aria-hidden="true">1</span><p>Wait for another player, or let the host add an NPC for a practice match.</p></li>
+            <li><span aria-hidden="true">1</span><p>Join the queue and wait for the server to assign four teams.</p></li>
             <li><span aria-hidden="true">2</span><p>On your turn, press <strong>Roll dice</strong> before the timer ends.</p></li>
-            <li><span aria-hidden="true">3</span><p>Climb ladders, slide down snakes, and roll exactly onto 100 to win.</p></li>
+            <li><span aria-hidden="true">3</span><p>Reach 100 first, or hold the highest square when five minutes expire.</p></li>
           </ol>
           <div class="rule-note">
             <span aria-hidden="true">⚅</span>
@@ -135,39 +110,30 @@
         <aside class="panel match-sidebar">
           <div class="room-heading">
             <div>
-              <p class="kicker">Private room</p>
-              <h2 id="room-title" tabindex="-1">Room <span id="room-code-label">—</span></h2>
+              <p class="kicker">Server-assigned match</p>
+              <h2 id="room-title" tabindex="-1">Match queue</h2>
             </div>
-            <button id="copy-code" class="icon-button" type="button" aria-label="Copy room code">
-              Copy
-            </button>
           </div>
-          <p id="room-help" class="room-help">Share this code so friends can join.</p>
+          <p id="room-help" class="room-help">Waiting for four authenticated teams.</p>
 
           <h3 class="players-heading">Players <span id="player-count">0/4</span></h3>
           <ol id="player-list" class="player-list" aria-label="Players in this room"></ol>
 
           <div class="turn-card">
-            <p id="turn-label" class="turn-label">Waiting in the lobby</p>
+            <p id="turn-label" class="turn-label">Waiting in matchmaking</p>
             <div id="die" class="die" aria-hidden="true">?</div>
             <p id="turn-countdown" class="turn-countdown">—</p>
             <button id="game-action" class="button button-primary roll-button" type="button" disabled>
               Waiting for players
             </button>
-            <button id="add-npc" class="button button-npc" type="button" hidden>
-              Add NPC opponent
-            </button>
-            <p id="npc-help" class="npc-help" hidden>
-              NPC matches are practice-only and do not report Leaderboard evidence.
-            </p>
           </div>
 
           <div id="last-move" class="last-move" aria-live="polite">
-            No rolls yet. The host starts when everyone is ready.
+            No rolls yet. The server starts the match automatically.
           </div>
 
           <button id="new-room" class="text-button" type="button" hidden>
-            Return to room setup
+            Join another match
           </button>
         </aside>
 

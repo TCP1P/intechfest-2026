@@ -2,24 +2,26 @@
 name: "Serpent Circuit"
 author: "TCP1P"
 description: |
-  Create a private Snakes & Ladders room or join one with its six-character
-  code. Two to four authenticated teams share the same live board and take
-  turns rolling a server-generated die. Climb ladders, slide down snakes, roll
-  exactly onto square 100, and remember that a six grants another turn.
+  Enter the server-controlled matchmaking queue with your current KotH
+  capability. The server assigns teams in arrival order, fills every match
+  with exactly four distinct authenticated teams, and starts it automatically.
+  Private room codes, chosen opponents, NPCs, and manual starts are not part of
+  ranked play. If another assigned match is active, keep the game page open
+  while your group waits for its turn.
 
-  If nobody else joins, the host can add one server-controlled Circuit Bot and
-  play immediately. NPC rooms are clearly marked practice-only and never
-  report Leaderboard evidence; play against authenticated human teams for a
-  scored match.
+  Take turns rolling a server-generated die. Climb ladders, slide down snakes,
+  land exactly on square 100, and remember that a six grants another turn.
+  Expired turns are rolled automatically after 30 seconds. Reaching square 100
+  wins immediately; otherwise the sole team on the highest square wins when
+  the fixed five-minute match deadline expires. A tied highest square produces
+  no match winner.
 
-  Authenticate each human seat with its current KotH capability. Expired human
-  turns are rolled automatically after 30 seconds, so every match keeps
-  moving. During a human-only match, every completed 60-second scoring tick
+  During an active match, every completed 60-second scoring tick
   reports each team's furthest server-confirmed square held during that tick as
   a bounded `board-progress` ratio. The sole greatest positive result earns the
-  Crown; an exact tie earns no Crown. Finished, lobby, and NPC rooms do not
-  carry progress into later ticks. The game retains only authenticated
-  capability hashes and never reports platform points or raw capabilities.
+  Crown; an exact tie earns no Crown. Finished and waiting matches do not carry
+  progress into later ticks. The game retains only authenticated capability
+  hashes and never reports platform points or raw capabilities.
 type: KingOfTheHill
 category: PPC
 disableBloodBonus: true

@@ -1,32 +1,26 @@
 import { makeServerClock, serverNow } from "/assets/clock.mjs";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const SAVED_ROOM_KEY = "serpent-circuit-room-v4";
+const SAVED_ROOM_KEY = "serpent-circuit-match-v5";
 const POLL_INTERVAL_MS = 1_000;
 const DIE_FACES = ["?", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const VALID_COLORS = new Set(["coral", "blue", "green", "purple"]);
 
 const elements = {
-  addNpc: document.querySelector("#add-npc"),
   board: document.querySelector("#board"),
   boardSummary: document.querySelector("#board-summary"),
   capability: document.querySelector("#capability"),
-  copyCode: document.querySelector("#copy-code"),
-  createRoom: document.querySelector("#create-room"),
   die: document.querySelector("#die"),
   entryPanel: document.querySelector("#entry-panel"),
   gameAction: document.querySelector("#game-action"),
   gamePanel: document.querySelector("#game-panel"),
-  joinRoom: document.querySelector("#join-room"),
+  joinQueue: document.querySelector("#join-queue"),
   lastMove: document.querySelector("#last-move"),
   newRoom: document.querySelector("#new-room"),
-  npcHelp: document.querySelector("#npc-help"),
   playerCount: document.querySelector("#player-count"),
   playerList: document.querySelector("#player-list"),
   playerName: document.querySelector("#player-name"),
   reconnectRoom: document.querySelector("#reconnect-room"),
-  roomCode: document.querySelector("#room-code"),
-  roomCodeLabel: document.querySelector("#room-code-label"),
   roomForm: document.querySelector("#room-form"),
   roomHelp: document.querySelector("#room-help"),
   roomTitle: document.querySelector("#room-title"),
@@ -45,7 +39,6 @@ const state = {
   pollTimer: null,
   polling: false,
   room: null,
-  roomCode: null,
   rules: null,
 };
 
@@ -76,6 +69,7 @@ function normalizeRules(raw) {
     "boardSize",
     "finishPosition",
     "maxPlayers",
+    "matchSeconds",
     "minPlayers",
     "name",
     "objective",
@@ -92,13 +86,14 @@ function normalizeRules(raw) {
   if (
     raw.name !== "Serpent Circuit"
     || raw.objective !== "board-progress"
-    || raw.protocolVersion !== 4
+    || raw.protocolVersion !== 5
     || raw.boardSize !== 100
     || raw.startPosition !== 0
     || raw.finishPosition !== 100
-    || raw.minPlayers !== 2
+    || raw.minPlayers !== 4
     || raw.maxPlayers !== 4
     || raw.turnSeconds !== 30
+    || raw.matchSeconds !== 300
     || raw.scoringWaveSeconds !== 60
   ) {
     throw new Error("The server returned a different Serpent Circuit contract.");
@@ -140,24 +135,19 @@ function normalizePlayer(raw) {
     !raw
     || typeof raw !== "object"
     || Array.isArray(raw)
-    || Object.keys(raw).sort().join("|") !== "color|id|isHost|isNpc|name|position"
+    || Object.keys(raw).sort().join("|") !== "color|id|name|position"
   ) {
     throw new Error("The server returned an invalid player.");
   }
   const color = boundedString(raw.color, "player color", 16);
   if (
     !VALID_COLORS.has(color)
-    || typeof raw.isHost !== "boolean"
-    || typeof raw.isNpc !== "boolean"
-    || (raw.isHost && raw.isNpc)
   ) {
     throw new Error("The server returned invalid player metadata.");
   }
   return {
     color,
     id: boundedString(raw.id, "player ID"),
-    isHost: raw.isHost,
-    isNpc: raw.isNpc,
     name: boundedString(raw.name, "player name", 48),
     position: integer(raw.position, "player position", 0, 100),
   };
@@ -208,12 +198,13 @@ function normalizeRoom(raw) {
     throw new Error("The server returned invalid room state.");
   }
   const expected = [
-    "code",
     "currentPlayerId",
     "lastMove",
+    "matchDeadline",
     "maxPlayers",
     "minPlayers",
     "players",
+    "queueAhead",
     "scoreStatus",
     "serverTime",
     "status",
@@ -226,10 +217,8 @@ function normalizeRoom(raw) {
     throw new Error("The server returned a different room contract.");
   }
   if (
-    typeof raw.code !== "string"
-    || !/^[A-HJ-NP-Z2-9]{6}$/.test(raw.code)
-    || !["lobby", "playing", "finished"].includes(raw.status)
-    || raw.minPlayers !== 2
+    !["waiting", "playing", "finished"].includes(raw.status)
+    || raw.minPlayers !== 4
     || raw.maxPlayers !== 4
     || !Array.isArray(raw.players)
     || raw.players.length < 1
@@ -246,13 +235,13 @@ function normalizeRoom(raw) {
   if (
     ids.size !== players.length
     || !localPlayer
-    || localPlayer.isNpc
-    || players.filter((player) => player.isNpc).length > 1
+    || !Number.isSafeInteger(raw.queueAhead)
+    || raw.queueAhead < 0
+    || raw.queueAhead > 500
     || ![
       "pending",
       "recorded",
       "outside-scoring-window",
-      "practice-npc",
     ].includes(raw.scoreStatus)
   ) {
     throw new Error("The server returned an invalid room roster.");
@@ -269,8 +258,6 @@ function normalizeRoom(raw) {
     || (raw.status === "playing" && currentPlayerId === null)
     || (raw.status !== "playing" && currentPlayerId !== null)
     || (raw.status !== "finished" && winnerId !== null)
-    || (raw.status === "finished" && players.some((player) => player.isNpc)
-      && raw.scoreStatus !== "practice-npc")
   ) {
     throw new Error("The server returned an inconsistent match state.");
   }
@@ -280,10 +267,17 @@ function normalizeRoom(raw) {
   if ((raw.status === "playing") !== (turnDeadline !== null)) {
     throw new Error("The server returned an inconsistent turn deadline.");
   }
+  const matchDeadline = raw.matchDeadline === null
+    ? null
+    : integer(raw.matchDeadline, "match deadline", 0, Number.MAX_SAFE_INTEGER);
+  if ((raw.status === "playing") !== (matchDeadline !== null)) {
+    throw new Error("The server returned an inconsistent match deadline.");
+  }
   return {
     ...raw,
     currentPlayerId,
     lastMove: normalizeLastMove(raw.lastMove, ids),
+    matchDeadline,
     players,
     serverTime: integer(raw.serverTime, "server time", 0, Number.MAX_SAFE_INTEGER),
     turnDeadline,
@@ -455,7 +449,6 @@ function playerById(playerId) {
 
 function playerLabel(player) {
   const labels = [];
-  if (player.isNpc) labels.push("NPC");
   if (player.id === state.room.you.id) labels.push("you");
   return labels.length ? `${player.name} (${labels.join(", ")})` : player.name;
 }
@@ -508,8 +501,6 @@ function renderPlayers() {
     name.textContent = playerLabel(player);
     const role = document.createElement("small");
     const tags = [];
-    if (player.isHost) tags.push("Host");
-    if (player.isNpc) tags.push("NPC");
     if (player.id === state.room.currentPlayerId) tags.push("Current turn");
     if (player.id === state.room.winnerId) tags.push("Winner");
     role.textContent = tags.join(" · ") || "Player";
@@ -526,7 +517,9 @@ function renderPlayers() {
 function describeLastMove() {
   const move = state.room.lastMove;
   if (!move) {
-    return "No rolls yet. The host starts when everyone is ready.";
+    return state.room.status === "waiting"
+      ? "No rolls yet. The server starts the match automatically."
+      : "The match started. Waiting for the first roll.";
   }
   const player = playerById(move.playerId);
   const name = player ? playerLabel(player) : "A player";
@@ -549,49 +542,31 @@ function describeLastMove() {
 
 function matchOutcomeMessage() {
   const winner = state.room.winnerId ? playerById(state.room.winnerId) : null;
-  const result = winner ? `${playerLabel(winner)} won the match!` : "The match ended in a draw.";
-  return state.room.scoreStatus === "practice-npc"
-    ? `${result} NPC practice matches are not recorded on the Leaderboard.`
-    : result;
+  return winner ? `${playerLabel(winner)} won the match!` : "The match ended in a draw.";
 }
 
 function renderTurn() {
   const room = state.room;
-  const you = playerById(room.you.id);
-  const host = room.players.find((player) => player.isHost);
-  const hasNpc = room.players.some((player) => player.isNpc);
-  const canAddNpc = room.status === "lobby" && you.isHost && room.players.length === 1;
   elements.newRoom.hidden = room.status !== "finished";
-  elements.addNpc.hidden = !canAddNpc;
-  elements.addNpc.disabled = state.busy;
-  elements.npcHelp.hidden = !canAddNpc && !hasNpc;
 
-  if (room.status === "lobby") {
+  if (room.status === "waiting") {
+    const missing = room.maxPlayers - room.players.length;
     elements.die.textContent = "?";
-    elements.turnCountdown.textContent = room.players.length >= room.minPlayers
-      ? `${room.players.length} players ready`
-      : `${room.players.length} of ${room.minPlayers} joined`;
-    if (you.isHost) {
-      const ready = room.players.length >= room.minPlayers;
-      elements.turnLabel.textContent = ready
-        ? hasNpc ? "Practice opponent ready" : "Everyone ready?"
-        : "Waiting for more players";
-      elements.gameAction.textContent = ready ? "Start match" : "Waiting for players";
-      elements.gameAction.disabled = !ready || state.busy;
-    } else {
-      elements.turnLabel.textContent = `Waiting for ${host.name} to start`;
-      elements.gameAction.textContent = "Waiting for host";
-      elements.gameAction.disabled = true;
-    }
+    elements.turnCountdown.textContent = `${room.players.length} of ${room.maxPlayers} teams ready`;
+    elements.turnLabel.textContent = room.queueAhead > 0
+      ? `${room.queueAhead} match${room.queueAhead === 1 ? "" : "es"} ahead`
+      : missing > 0 ? `Waiting for ${missing} more team${missing === 1 ? "" : "s"}` : "Next match ready";
+    elements.gameAction.textContent = "Match starts automatically";
+    elements.gameAction.disabled = true;
     return;
   }
 
   if (room.status === "finished") {
     const winner = room.winnerId ? playerById(room.winnerId) : null;
     elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "—";
-    elements.turnCountdown.textContent = room.scoreStatus === "practice-npc"
-      ? "Practice match · not scored"
-      : room.scoreStatus === "recorded" ? "Final tick recorded" : "Match complete";
+    elements.turnCountdown.textContent = room.scoreStatus === "recorded"
+      ? "Final position recorded"
+      : "Match complete";
     elements.turnLabel.textContent = winner ? `${playerLabel(winner)} wins!` : "Match ended in a draw";
     elements.gameAction.textContent = "Game over";
     elements.gameAction.disabled = true;
@@ -601,12 +576,8 @@ function renderTurn() {
   const current = playerById(room.currentPlayerId);
   const isYourTurn = current.id === room.you.id;
   elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "?";
-  elements.turnLabel.textContent = current.isNpc
-    ? `${current.name} is thinking…`
-    : isYourTurn ? "Your turn — roll the dice" : `${current.name}'s turn`;
-  elements.gameAction.textContent = current.isNpc
-    ? "NPC is rolling"
-    : isYourTurn ? "Roll dice" : "Waiting for roll";
+  elements.turnLabel.textContent = isYourTurn ? "Your turn — roll the dice" : `${current.name}'s turn`;
+  elements.gameAction.textContent = isYourTurn ? "Roll dice" : "Waiting for roll";
   elements.gameAction.disabled = !isYourTurn || state.busy;
 }
 
@@ -614,25 +585,31 @@ function renderCountdown() {
   if (!state.room || state.room.status !== "playing" || !state.clock) {
     return;
   }
-  let remaining;
+  let turnRemaining;
+  let matchRemaining;
   try {
-    remaining = Math.max(0, state.room.turnDeadline - serverNow(state.clock, performance.now()));
+    const current = serverNow(state.clock, performance.now());
+    turnRemaining = Math.max(0, state.room.turnDeadline - current);
+    matchRemaining = Math.max(0, state.room.matchDeadline - current);
   } catch {
     elements.turnCountdown.textContent = "Syncing timer…";
     return;
   }
-  elements.turnCountdown.textContent = `${Math.ceil(remaining / 1_000)}s remaining`;
+  const matchSeconds = Math.ceil(matchRemaining / 1_000);
+  const minutes = Math.floor(matchSeconds / 60);
+  const seconds = String(matchSeconds % 60).padStart(2, "0");
+  elements.turnCountdown.textContent = `${Math.ceil(turnRemaining / 1_000)}s turn · ${minutes}:${seconds} match`;
 }
 
 function renderRoom() {
   const room = state.room;
-  elements.roomCodeLabel.textContent = room.code;
-  const hasNpc = room.players.some((player) => player.isNpc);
-  elements.roomHelp.textContent = room.status === "lobby"
-    ? hasNpc
-      ? "Circuit Bot joined. This room is now practice-only."
-      : "Share this code so friends can join."
-    : `${hasNpc ? "Practice room" : "Ranked room"} · Turn ${room.turnNumber} · server-authoritative match`;
+  elements.roomHelp.textContent = room.status === "waiting"
+    ? room.queueAhead > 0
+      ? "Another assigned match is still playing. Keep this page open to hold your queue seat."
+      : "The server is filling this group in arrival order. Keep this page open."
+    : room.status === "playing"
+      ? `Ranked match · Turn ${room.turnNumber} · highest square wins at the deadline`
+      : "This assigned match is complete.";
   renderPlayers();
   renderPieces();
   renderTurn();
@@ -649,7 +626,6 @@ function saveSeat() {
   try {
     localStorage.setItem(SAVED_ROOM_KEY, JSON.stringify({
       playerToken: state.playerToken,
-      roomCode: state.roomCode,
     }));
   } catch {
     // The in-memory seat remains playable when storage is unavailable.
@@ -663,8 +639,6 @@ function savedSeat() {
       parsed
       && typeof parsed.playerToken === "string"
       && parsed.playerToken.length >= 16
-      && typeof parsed.roomCode === "string"
-      && /^[A-HJ-NP-Z2-9]{6}$/.test(parsed.roomCode)
     ) {
       return parsed;
     }
@@ -676,7 +650,6 @@ function savedSeat() {
 
 function clearSeat() {
   state.playerToken = null;
-  state.roomCode = null;
   state.room = null;
   state.clock = null;
   state.lastAnnouncement = "";
@@ -696,7 +669,7 @@ function showEntry() {
   const saved = savedSeat();
   elements.reconnectRoom.hidden = saved === null;
   if (saved) {
-    elements.reconnectRoom.textContent = `Reconnect to room ${saved.roomCode}`;
+    elements.reconnectRoom.textContent = "Reconnect to saved match";
   }
 }
 
@@ -709,10 +682,6 @@ function showGame() {
 
 function applyRoom(raw, sent, received) {
   const room = normalizeRoom(raw);
-  if (state.roomCode && room.code !== state.roomCode) {
-    throw new Error("The server returned state for a different room.");
-  }
-  state.roomCode = room.code;
   state.clock = makeServerClock(room.serverTime, sent, received);
   state.room = room;
   renderRoom();
@@ -733,52 +702,40 @@ function normalizeSeatResponse(raw) {
   };
 }
 
-function formValues(requireCode) {
+function formValues() {
   const name = elements.playerName.value.trim();
   const token = elements.capability.value.trim();
-  const roomCode = elements.roomCode.value.trim().toUpperCase();
   elements.playerName.setAttribute("aria-invalid", name ? "false" : "true");
   elements.capability.setAttribute("aria-invalid", token ? "false" : "true");
-  elements.roomCode.setAttribute(
-    "aria-invalid",
-    !requireCode || /^[A-HJ-NP-Z2-9]{6}$/.test(roomCode) ? "false" : "true",
-  );
   if (!name || !token) {
     throw new Error("Enter a display name and your current KotH capability.");
   }
-  if (requireCode && !/^[A-HJ-NP-Z2-9]{6}$/.test(roomCode)) {
-    throw new Error("Enter the six-character room code from the host.");
-  }
-  return { name, roomCode, token };
+  return { name, token };
 }
 
-async function enterRoom(kind) {
+async function enterQueue() {
   if (state.busy) return;
   try {
-    const values = formValues(kind === "join");
+    const values = formValues();
     state.busy = true;
-    elements.createRoom.disabled = true;
-    elements.joinRoom.disabled = true;
-    setStatus(kind === "create" ? "Creating your private room…" : "Joining the room…");
-    const path = kind === "create" ? "/api/rooms" : "/api/rooms/join";
-    const body = kind === "create"
-      ? { name: values.name, token: values.token }
-      : { name: values.name, roomCode: values.roomCode, token: values.token };
-    const response = await requestJson(path, body);
+    elements.joinQueue.disabled = true;
+    setStatus("Joining the fair matchmaking queue…");
+    const response = await requestJson("/api/matchmaking", {
+      name: values.name,
+      token: values.token,
+    });
     const seat = normalizeSeatResponse(response.document);
     state.playerToken = seat.playerToken;
-    state.roomCode = seat.room.code;
     elements.capability.value = "";
     applyRoom(seat.room, response.sent, response.received);
     saveSeat();
     showGame();
-    setStatus(`Joined room ${state.roomCode}.`, "success");
+    setStatus(seat.room.status === "playing" ? "Your match started." : "Queue seat assigned.", "success");
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
     state.busy = false;
-    elements.createRoom.disabled = false;
-    elements.joinRoom.disabled = false;
+    elements.joinQueue.disabled = false;
     if (state.room) renderTurn();
   }
 }
@@ -791,25 +748,20 @@ function actionId() {
 
 async function runGameAction() {
   if (state.busy || !state.room) return;
-  const start = state.room.status === "lobby";
   try {
     state.busy = true;
     renderTurn();
-    setStatus(start ? "Starting the match…" : "Rolling the server die…");
-    const response = await requestJson(
-      start ? "/api/rooms/start" : "/api/rooms/roll",
-      {
-        actionId: actionId(),
-        playerToken: state.playerToken,
-        roomCode: state.roomCode,
-      },
-    );
+    setStatus("Rolling the server die…");
+    const response = await requestJson("/api/matchmaking/roll", {
+      actionId: actionId(),
+      playerToken: state.playerToken,
+    });
     applyRoom(response.document, response.sent, response.received);
     if (state.room.status === "finished") {
       setStatus(matchOutcomeMessage(), "success");
       stopPolling();
     } else {
-      setStatus(start ? "Match started. Good luck!" : describeLastMove(), "success");
+      setStatus(describeLastMove(), "success");
     }
   } catch (error) {
     setStatus(error.message, "error");
@@ -820,41 +772,18 @@ async function runGameAction() {
   }
 }
 
-async function addNpcOpponent() {
-  if (state.busy || !state.room) return;
-  try {
-    state.busy = true;
-    renderTurn();
-    setStatus("Adding Circuit Bot to this practice room…");
-    const response = await requestJson("/api/rooms/npc", {
-      actionId: actionId(),
-      playerToken: state.playerToken,
-      roomCode: state.roomCode,
-    });
-    applyRoom(response.document, response.sent, response.received);
-    setStatus("Circuit Bot joined. You can start this practice match now.", "success");
-  } catch (error) {
-    setStatus(error.message, "error");
-    await pollRoom();
-  } finally {
-    state.busy = false;
-    if (state.room) renderTurn();
-  }
-}
-
 async function pollRoom() {
-  if (state.polling || !state.playerToken || !state.roomCode) return;
+  if (state.polling || !state.playerToken) return;
   state.polling = true;
   try {
-    const response = await requestJson("/api/rooms/state", {
+    const response = await requestJson("/api/matchmaking/state", {
       playerToken: state.playerToken,
-      roomCode: state.roomCode,
     });
     const previousStatus = state.room?.status;
     const previousMove = state.room?.turnNumber;
     applyRoom(response.document, response.sent, response.received);
-    if (previousStatus === "lobby" && state.room.status === "playing") {
-      setStatus("The host started the match.", "success");
+    if (previousStatus === "waiting" && state.room.status === "playing") {
+      setStatus("Four teams are ready. Your match started automatically.", "success");
     } else if (previousMove !== state.room.turnNumber && state.room.lastMove) {
       setStatus(describeLastMove(), "success");
     }
@@ -888,26 +817,15 @@ function stopPolling() {
 async function reconnect() {
   const saved = savedSeat();
   if (!saved) {
-    setStatus("No saved room is available.", "warning");
+    setStatus("No saved match is available.", "warning");
     return;
   }
   state.playerToken = saved.playerToken;
-  state.roomCode = saved.roomCode;
-  setStatus(`Reconnecting to room ${saved.roomCode}…`);
+  setStatus("Reconnecting to your assigned match…");
   await pollRoom();
   if (state.room) {
     showGame();
-    setStatus(`Reconnected to room ${saved.roomCode}.`, "success");
-  }
-}
-
-async function copyRoomCode() {
-  if (!state.roomCode) return;
-  try {
-    await navigator.clipboard.writeText(state.roomCode);
-    setStatus(`Room code ${state.roomCode} copied.`, "success");
-  } catch {
-    setStatus(`Room code: ${state.roomCode}`, "warning");
+    setStatus("Reconnected to your assigned match.", "success");
   }
 }
 
@@ -938,31 +856,23 @@ async function initialize() {
       await reconnect();
       if (state.room) return;
     }
-    setStatus("Create a room or join your friends with a room code.", "success");
+    setStatus("Enter your capability to join fair four-team matchmaking.", "success");
   } catch (error) {
     elements.runtimeBadge.textContent = "Unavailable";
     setStatus(error.message, "error");
   }
 }
 
-elements.createRoom.addEventListener("click", () => enterRoom("create"));
 elements.roomForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  enterRoom("join");
+  enterQueue();
 });
 elements.gameAction.addEventListener("click", runGameAction);
-elements.addNpc.addEventListener("click", addNpcOpponent);
-elements.copyCode.addEventListener("click", copyRoomCode);
 elements.reconnectRoom.addEventListener("click", reconnect);
 elements.newRoom.addEventListener("click", () => {
   clearSeat();
   showEntry();
-  setStatus("Create a new room or join another match.");
-});
-elements.roomCode.addEventListener("input", () => {
-  const normalized = elements.roomCode.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "");
-  elements.roomCode.value = normalized.slice(0, 6);
-  elements.roomCode.setAttribute("aria-invalid", "false");
+  setStatus("Enter your capability to join another fair match.");
 });
 for (const input of [elements.playerName, elements.capability]) {
   input.addEventListener("input", () => input.setAttribute("aria-invalid", "false"));

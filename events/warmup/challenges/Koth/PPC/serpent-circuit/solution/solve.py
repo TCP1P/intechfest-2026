@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Create and complete one server-authoritative Serpent Circuit match."""
+"""Join four teams to Serpent Circuit and play the assigned match."""
 
 import argparse
 import json
 import secrets
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
-MAX_RESPONSE_BYTES = 64 * 1024
 TIMEOUT_SECONDS = 8
+MAX_WAIT_SECONDS = 620
+MAX_ROLLS = 1000
 
 
 def request_json(base_url, path, payload=None):
-    """Send one bounded player-visible request and return its JSON object."""
     body = None if payload is None else json.dumps(payload).encode()
     headers = {"Accept": "application/json"}
     if body is not None:
@@ -21,116 +22,83 @@ def request_json(base_url, path, payload=None):
     request = Request(base_url.rstrip("/") + path, data=body, headers=headers)
     try:
         with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise ValueError("response is too large")
-        result = json.loads(raw)
+            raw = response.read(64 * 1024 + 1)
     except HTTPError as error:
         detail = error.read(4096).decode(errors="replace")
         raise ValueError(f"{path} returned HTTP {error.code}: {detail}") from error
+    if len(raw) > 64 * 1024:
+        raise ValueError("response is too large")
+    result = json.loads(raw)
     if not isinstance(result, dict):
         raise ValueError(f"{path} did not return a JSON object")
     return result
 
 
-def action_id():
-    return secrets.token_hex(12)
-
-
-def seat_values(response):
-    try:
-        player_token = response["playerToken"]
-        room = response["room"]
-        player_id = room["you"]["id"]
-        room_code = room["code"]
-    except (KeyError, TypeError) as error:
-        raise ValueError("server returned an invalid room seat") from error
-    if not all(isinstance(value, str) and value for value in (player_token, player_id, room_code)):
-        raise ValueError("server returned an invalid room seat")
-    return player_token, player_id, room_code, room
-
-
-def solve(base_url, capabilities, max_rolls):
-    """Create a room, play every supplied seat, and return the match result."""
+def solve(base_url, capabilities):
+    """Enter matchmaking, wait for assignment, and play legal turns."""
     rules = request_json(base_url, "/api/rules")
-    if rules.get("protocolVersion") != 4 or rules.get("minPlayers") != 2:
-        raise ValueError("target does not expose the multiplayer contract")
+    if rules.get("protocolVersion") != 5 or rules.get("minPlayers") != 4:
+        raise ValueError("target does not expose the four-team matchmaking contract")
 
-    host = request_json(
-        base_url,
-        "/api/rooms",
-        {"name": "Solver 1", "token": capabilities[0]},
-    )
-    host_token, host_id, room_code, room = seat_values(host)
-    tokens_by_player = {host_id: host_token}
-    for number, capability in enumerate(capabilities[1:], 2):
+    tokens_by_player = {}
+    for number, capability in enumerate(capabilities, 1):
         seat = request_json(
             base_url,
-            "/api/rooms/join",
-            {"name": f"Solver {number}", "roomCode": room_code, "token": capability},
+            "/api/matchmaking",
+            {"name": f"Solver {number}", "token": capability},
         )
-        player_token, player_id, joined_code, room = seat_values(seat)
-        if joined_code != room_code:
-            raise ValueError("joined a different room")
-        tokens_by_player[player_id] = player_token
+        tokens_by_player[seat["room"]["you"]["id"]] = seat["playerToken"]
 
-    room = request_json(
-        base_url,
-        "/api/rooms/start",
-        {"actionId": action_id(), "playerToken": host_token, "roomCode": room_code},
-    )
+    deadline = time.monotonic() + MAX_WAIT_SECONDS
+    while True:
+        states = [
+            request_json(base_url, "/api/matchmaking/state", {"playerToken": token})
+            for token in tokens_by_player.values()
+        ]
+        rosters = [{player["id"] for player in room.get("players", [])} for room in states]
+        if all(room.get("status") == "playing" for room in states) and all(
+            roster == set(tokens_by_player) for roster in rosters
+        ):
+            room = states[0]
+            break
+        if time.monotonic() >= deadline:
+            raise ValueError("four supplied teams were not assigned to one active match in time")
+        time.sleep(2)
+
     rolls = 0
-    while room.get("status") == "playing" and rolls < max_rolls:
-        current_id = room.get("currentPlayerId")
-        if current_id not in tokens_by_player:
+    while room.get("status") == "playing" and rolls < MAX_ROLLS:
+        player_token = tokens_by_player.get(room.get("currentPlayerId"))
+        if player_token is None:
             raise ValueError("server selected an unknown current player")
         room = request_json(
             base_url,
-            "/api/rooms/roll",
-            {
-                "actionId": action_id(),
-                "playerToken": tokens_by_player[current_id],
-                "roomCode": room_code,
-            },
+            "/api/matchmaking/roll",
+            {"actionId": secrets.token_hex(12), "playerToken": player_token},
         )
         rolls += 1
     if room.get("status") != "finished":
-        raise ValueError(f"match did not finish within {max_rolls} rolls")
+        raise ValueError(f"match did not finish within {MAX_ROLLS} rolls")
 
-    players = room.get("players")
-    if not isinstance(players, list) or len(players) != len(capabilities):
-        raise ValueError("server returned an invalid final roster")
     winner = next(
-        (player for player in players if player.get("id") == room.get("winnerId")),
+        (player for player in room["players"] if player["id"] == room.get("winnerId")),
         None,
     )
-    if winner is None or winner.get("position") != 100:
-        raise ValueError("server did not confirm an exact-finish winner")
-    positions = ", ".join(f"{player['name']}={player['position']}" for player in players)
-    return (
-        f"room {room_code}: {winner['name']} won after {rolls} rolls; "
-        f"{positions}; score={room.get('scoreStatus')}"
-    )
+    if winner is None:
+        raise ValueError("match finished without a unique winner")
+    positions = ", ".join(f"{player['name']}={player['position']}" for player in room["players"])
+    return f"{winner['name']} won after {rolls} rolls; {positions}; score={room['scoreStatus']}"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True, help="issued Serpent Circuit URL")
-    parser.add_argument(
-        "--capability",
-        action="append",
-        required=True,
-        help="distinct KotH capability; supply two to four times",
-    )
-    parser.add_argument("--max-rolls", type=int, default=1000)
+    parser.add_argument("--capability", action="append", required=True)
     args = parser.parse_args()
-    if not 2 <= len(args.capability) <= 4:
-        parser.error("--capability must be supplied two to four times")
-    if not 1 <= args.max_rolls <= 1000:
-        parser.error("--max-rolls must be in 1..1000")
+    if len(args.capability) != 4:
+        parser.error("--capability must be supplied exactly four times")
     try:
-        result = solve(args.url, args.capability, args.max_rolls)
-    except (OSError, ValueError) as error:
+        result = solve(args.url, args.capability)
+    except (KeyError, OSError, TypeError, ValueError) as error:
         parser.exit(1, f"solve failed: {error}\n")
     print(result)
     return 0

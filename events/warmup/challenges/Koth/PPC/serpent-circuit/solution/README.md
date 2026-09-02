@@ -4,196 +4,135 @@
 
 - Status: `draft`.
 - Candidate source: uncommitted working tree based on
-  `9940d534e518f09feb861695f1b61bcbaaee1167`. Freeze only after the tick-scoring revision is
-  committed and reproduced in hidden staging.
+  `db0325085cc6b5d10b65cc2eac145c241a62a415`; freeze only after the exact commit and hidden
+  staging target pass.
 - Challenge type and delivery: shared `KingOfTheHill`, direct browser/API service, managed
   Leaderboard reporting, no handout and no gateway.
 - Service image: local amd64 image ID
-  `sha256:1cedcbf461855cf3bc40bb316a177d2919fb0b4a2822005c03ea62a8e88a57c6`.
+  `sha256:e2b829fcb94669dee2b6fe1adc9ce875e768049edae740727d2edc091549eb5c`.
 - Backend and target: hardened local Docker (`nobody`, read-only root filesystem,
-  `cap-drop ALL`, no-new-privileges, 128 MiB), `http://127.0.0.1:35038`.
-- Verification time and reviewer: `2026-09-01T23:04:56Z`; Codex.
-- Solver command: `python3 solution/solve.py --url http://127.0.0.1:35038 --capability
-  koth_local_player_00001 --capability koth_local_player_00002`.
-- Result: `room ANHP2F: Solver 1 won after 95 rolls; Solver 1=100, Solver 2=53;
-  score=recorded`.
-- Playtest: none for this tick-scoring revision. A fresh player-equivalent test of both human
-  and NPC rooms is still required.
+  `cap-drop ALL`, no-new-privileges, 128 MiB), `http://127.0.0.1:35041`.
+- Verification time and reviewer: `2026-09-02T00:34:33Z`; Codex.
+- Solver result: `Solver 1 won after 79 rolls; Solver 1=100, Solver 2=93, Solver 3=61,
+  Solver 4=71; score=recorded`.
+- Playtest: pending a fresh player-equivalent four-team matchmaking run.
 
 ## Summary
 
-Serpent Circuit is a traditional online Snakes & Ladders match for two to four seats. One
-player creates a private room, shares its six-character code, and starts after another player
-joins. If nobody joins, the host can add one server-controlled Circuit Bot and play a
-practice-only match. The server owns the die, NPC turns, turn order, positions, snakes,
-ladders, exact-finish rule, timeouts, winner, and per-tick Leaderboard evidence.
+Serpent Circuit is a server-authoritative four-team Snakes & Ladders match. A team submits its
+current KotH capability once. The server places that team in a FIFO queue, prevents the same
+capability from holding two active seats, and assigns exactly four distinct teams to each
+match. Players cannot create private rooms, choose opponents, add NPCs, or start a match.
 
-This revision intentionally replaces the former single-player route-optimization puzzle.
-There is no client-side solution to compute: play proceeds through ordinary server-confirmed
-rolls until one piece reaches square 100. The expected active match time is approximately
-5–15 minutes, with substantial random variation. Prerequisites are only a browser and a
-current KotH capability; an authenticated human opponent is required only for scored play.
+Only one match runs at a time. A full later group waits while the current group plays, then
+starts automatically. Reaching square 100 wins immediately. If nobody reaches 100 within
+five minutes, the sole player on the highest square wins; a tied highest square has no match
+winner. Every completed 60-second scoring tick reports each team's furthest confirmed square
+as the native `board-progress` ratio.
 
 ## Player inputs
 
 - The issued Serpent Circuit service URL.
-- One current KotH capability per participating team.
+- One current KotH capability for the player's team.
 - A display name.
-- For guests, the six-character room code shared by the host.
-- No download, flag, organizer endpoint, reporter credential, or source file is delivered.
+- No room code, opponent identity, download, flag, reporter credential, organizer endpoint,
+  or source file is delivered.
 
 ## Walkthrough
 
-### 1. Read the public game contract
+### 1. Read the public contract
 
-- Observation: `GET /api/rules` publishes the 100-square board, fourteen transitions,
-  two-to-four-seat limit, optional practice NPC, 30-second human turn timer, exact-finish
-  rule, and extra turn on six.
-- Action: open the browser UI or inspect the same JSON contract.
-- Result: the player knows every rule and transition before joining.
+- Observation: `GET /api/rules` publishes protocol version 5, the original 100-square board,
+  fourteen transitions, four-team limit, 30-second turn timer, five-minute match timer, and
+  the exact-finish and extra-turn rules.
+- Action: open the browser UI or inspect the same JSON route.
+- Result: the player knows the complete board and ranked-match behavior before joining.
 
-### 2. Create or join a room
+### 2. Enter matchmaking
 
-- Host action: submit a display name and current capability to `POST /api/rooms`.
-- Guest action: submit the same inputs plus the host's code to `POST /api/rooms/join`.
-- Confirmation: the response contains a private room player token and a public room document.
-  The browser clears the capability field and keeps only the room token in browser storage.
-- Capability gained: the authenticated team controls exactly one seat in that room.
+- Action: submit a display name and current capability to `POST /api/matchmaking`.
+- Confirmation: the response contains an opaque player token and the server-assigned match
+  state. It contains no selectable room code. The browser clears the raw capability and
+  stores only the player token for reconnection.
+- Capability gained: control of one authenticated piece in one waiting or active match.
 
-If the host is still alone, **Add NPC opponent** sends the same private room token and an
-idempotent action ID to `POST /api/rooms/npc`. The response adds `Circuit Bot` with an
-`isNpc` label. It has no capability hash or private player token. The lobby immediately and
-persistently identifies the room as practice-only; a late human may still join, but the NPC
-remains and the match cannot produce evidence.
+The client polls `POST /api/matchmaking/state` with the player token. Waiting players must
+keep the page open; an abandoned waiting seat expires after 60 seconds so one closed browser
+cannot permanently block three other teams.
 
-### 3. Start the match
+### 3. Wait for automatic assignment and start
 
-- Observation: the live roster labels the host, human players, and NPC, and shows whether the
-  minimum of two seats is ready.
-- Action: the host presses **Start match**, which calls `POST /api/rooms/start` with an
-  idempotent action ID.
-- Confirmation: the room changes from `lobby` to `playing`, selects the host's first turn,
-  and publishes the 30-second server deadline.
-- Scoring: a human-only room now participates in each completed 60-second scoring tick. A
-  lobby or any room containing Circuit Bot emits no evidence.
+- Observation: waiting state shows the assigned roster count and how many complete matches
+  are ahead.
+- Confirmation: when four teams fill the oldest group and no earlier match is active, the
+  state changes from `waiting` to `playing` without a host or start request.
+- Result: the server publishes the first turn deadline and fixed match deadline.
 
-### 4. Take server-authoritative turns
+### 4. Take authoritative turns
 
-- Action: the current player presses **Roll dice**. The client sends only the room code,
-  private player token, and a new action ID to `POST /api/rooms/roll`.
-- Confirmation: every client polls `POST /api/rooms/state` and sees the same die value,
-  movement, transport, next player, timer, and piece positions. The authoritative managed
-  reporter clock advances expired turns even when no browser polls; an ordinary state request
-  uses the same rule and immediately exposes the result.
-- Rules: an overshoot stays in place, a ladder or snake applies once after movement, a six
-  retains the turn, and an expired turn is rolled automatically by the server.
-- Tick result: for each human team, the server retains the furthest square that team held at
-  any point in the current tick. Repeated moves or a second match cannot create a second row
-  or inflate the ratio beyond `furthestSquare / 100`.
+- Action: the current player sends its private player token and a fresh action ID to
+  `POST /api/matchmaking/roll`.
+- Confirmation: all clients see the same server-generated die, movement, transition, next
+  player, turn timer, match timer, and board positions.
+- Rules: an overshoot stays in place, one snake or ladder applies after movement, a six keeps
+  the turn, and the server rolls an expired turn automatically.
 
-### 5. Finish on square 100
+### 5. Finish or reach the deadline
 
-- Confirmation: a legal exact roll changes the room to `finished`, identifies one winner,
-  freezes the final positions, and shows whether the final active tick was recorded.
-- Capability gained: the finishing tick retains the winner's square 100 result and every
-  opponent's best position from that tick. The finished room contributes nothing to later
-  ticks. A room containing an NPC finishes with `scoreStatus: practice-npc` and emits no
-  evidence for any seat.
+- Exact finish: a legal roll onto square 100 immediately ends the match with that player as
+  winner.
+- Deadline: at exactly five minutes, the server compares current positions. One unique
+  highest position wins; an exact top tie returns no winner.
+- Queue transition: finishing releases all four capability seats and starts the oldest full
+  waiting group automatically.
+- Scoring: waiting and finished matches emit no later progress. A completed active tick keeps
+  one furthest-position row per capability hash.
 
 ## Why it works
 
-The raw capability crosses the rsctf authentication boundary only when a seat is created.
-The service retains its SHA-256 hash, lifecycle identity, opaque room player token, and game
-state. A room code alone cannot impersonate a seat, and one capability hash cannot occupy two
-active rooms in the same scoring lifecycle.
+The raw capability crosses the rsctf authentication boundary only during matchmaking. The
+service retains its SHA-256 hash, lifecycle identity, opaque player token, and authoritative
+game state. The queue lookup and one-seat index run under the same lock, so concurrent retries
+return the existing seat instead of duplicating a team.
 
-The client never supplies a roll, position, winner, or score. It can request a roll only for
-the authenticated current seat. Action IDs make a retried start or roll return the first
-result instead of rolling twice. Lifecycle rotation, roster revocation, room expiry, player
-limits, request limits, and a 1,000-turn draw cap bound the shared state.
+The browser never supplies a room, opponent, roll, position, winner, or score. FIFO grouping,
+the one-active-match rule, auto-start, turn deadlines, match deadline, and highest-position
+settlement all run in the authoritative process. A modified client therefore cannot arrange
+a favorable private group or hold the active slot indefinitely.
 
-Only the host of a one-human lobby can add the single NPC. Circuit Bot is represented by a
-server-owned player ID with neither a room player token nor a capability hash, so it cannot
-authenticate, call an action endpoint, occupy a team seat, or enter the eligible reporter
-roster. The turn scheduler gives it a one-second deadline and performs its ordinary
-server-generated roll on the next authoritative reporter-clock or state-request pass. Human
-deadlines use the same path, preventing a team from freezing a high position by closing its
-browser. A six schedules another turn for the same seat; every other roll returns control to
-the next seat.
-
-The same locked process checkpoints every active human-only room on the permanent 60-second
-cadence. It carries an unchanged position across a boundary and takes the maximum
-server-confirmed position for each capability hash within the tick, so a snake cannot erase
-progress already demonstrated during that tick and repeated play cannot add rows. At the
-boundary it appends one immutable `furthestPosition / 100` event per team. Lobby, expired,
-finished, reset-fenced, and NPC rooms do not carry progress forward.
-
-The in-process managed reporter filters hashes against rsctf's current roster, accepts only
-events from the exact lifecycle and settlement window, and asserts a Crown only for one
-unique positive leader. It reports bounded native ratios, never platform points or a raw
-capability. RSCTF normalizes each tick relative to its best positive result and performs the
-epoch/score calculation.
+Action IDs make a retried roll return its first result. Capability lifecycle changes, roster
+revocation, stale waiting seats, bounded rooms and seats, request limits, and the 1,000-turn
+safety cap bound shared state. The managed reporter reads the same locked state, emits bounded
+native ratios, and never reports raw capabilities or platform points.
 
 | Before | Player-visible clue | Action | Confirmation | Capability gained | Shortcut that fails |
 | --- | --- | --- | --- | --- | --- |
-| Service URL and capability | Create/join form and `/api/rules` | Authenticate a seat | Room token and roster | Control of one room piece | Room code without the private player token |
-| Lone lobby seat | NPC fallback and practice warning | Host adds Circuit Bot | Labeled two-seat practice lobby | Solo practice opponent | Guest add, second NPC, NPC capability, or scored NPC result |
-| Ready lobby | Host and seat-count labels | Host starts at 2–4 seats | Shared `playing` state | First timed turn and tick participation | Guest start or one-seat start |
-| Current turn | Roll button and countdown | Request one roll | Server move and next turn | Updated board position and bounded tick progress | Client-chosen die, position, winner, duplicate row, or score |
-| Piece near 100 | Exact-finish rule and live board | Continue legal turns | Winner on exactly 100 | Final active-tick progress | Overshoot, post-finish carry, replayed action, stale lifecycle, or forged result |
-
-Non-goals are public matchmaking, chat, spectators, sophisticated NPC strategy, persistent
-accounts, custom boards, and strategic route choice. Circuit Bot follows the same random die
-rules as a person and makes no decisions. This is deliberately a traditional luck-driven
-social game; its PPC aspect is the documented automatable HTTP protocol rather than a hidden
-exploit.
+| Service URL and capability | Matchmaking form and `/api/rules` | Submit one capability | Opaque player token and assigned group | Control of one piece | Private room or duplicate team seat |
+| Waiting group | Roster count and queue-ahead count | Keep polling | Automatic `playing` state at four teams | Timed match seat | Manual start, NPC, chosen opponent, stale abandoned seat |
+| Current turn | Roll button and timers | Request one roll | Server move and next turn | Updated position and tick evidence | Client die, position, winner, or replayed roll |
+| Active match | Five-minute countdown | Continue legal turns | Exact finish or deadline result | Final match outcome | Extending the deadline or blocking the next group |
 
 ## Solver
 
-[`solve.py`](solve.py) accepts two to four distinct player-visible capabilities. It creates
-one room, joins every supplied seat, starts as the host, follows the authoritative turn ID,
-and requests legal rolls until the server confirms an exact-finish winner.
+[`solve.py`](solve.py) is a small protocol rehearsal. On an isolated target, it submits four
+distinct capabilities, keeps every assigned seat alive while waiting, follows the current
+player ID, and requests legal rolls until the server confirms a unique winner.
 
 ```sh
 python3 solution/solve.py \
   --url http://127.0.0.1:PORT \
   --capability koth_local_player_00001 \
-  --capability koth_local_player_00002
+  --capability koth_local_player_00002 \
+  --capability koth_local_player_00003 \
+  --capability koth_local_player_00004
 ```
 
-The solver is a multiplayer protocol rehearsal, not a way to predict or control the die.
+The solver does not predict or control the die. Run it on a quiet local or hidden staging
+target so unrelated queue arrivals do not split the four supplied capabilities across groups.
 
 ## Evidence
 
-![Serpent Circuit NPC practice lobby](assets/serpent-circuit-board.png)
-
-The screenshot is a genuine 1440×1250 browser capture of local-development room `D8VJ7L`.
-It shows one authenticated human, Circuit Bot's explicit NPC label, the practice-only room
-message, enabled **Start match** control, and the shared live board. It was captured from
-`http://127.0.0.1:35038` at `2026-09-01T23:03:43Z` through isolated Chromium profile
-`/tmp/serpent-circuit-v4-final.er2Sht`; no capability or room player token is visible.
-The temporary profile was removed after capture. The 326,299-byte PNG has SHA-256
-`5f1bd32fe4bdd23004236d0329a6edaf3fbce2e3a900120a3dc085ed20184e28`.
-
-Exact screenshot command after the profile had created the real room, called the public NPC
-endpoint, saved its opaque seat, and reconnected through the browser UI:
-
-```sh
-chromium --headless --no-sandbox --disable-gpu --hide-scrollbars \
-  --window-size=1440,1250 --virtual-time-budget=3500 \
-  --user-data-dir=/tmp/serpent-circuit-v4-final.er2Sht \
-  --screenshot=/root/idea/intechfest/intechfest-2026/events/warmup/challenges/Koth/PPC/serpent-circuit/solution/assets/serpent-circuit-board.png \
-  http://127.0.0.1:35038
-```
-
-The same hardened container completed a real server-visible NPC turn through only the public
-HTTP routes. The retained output excludes the private room token:
-
-```json
-{"nextTurnIsHuman":true,"npcMovePlayer":"Circuit Bot","npcMoveWasAutomatic":true,"room":"LTDKWP","roster":[{"isNpc":false,"name":"NPC Flow"},{"isNpc":true,"name":"Circuit Bot"}],"scoreStatusDuringPlay":"pending"}
-```
-
-Focused commands for the current working tree:
+Focused verification commands for this revision:
 
 ```sh
 cd events/warmup/challenges/Koth/PPC/serpent-circuit/src
@@ -204,35 +143,45 @@ cd ../checker
 python3 -m unittest -v test_run.py
 ```
 
-The source suite passed 89 Python tests and 9 Node tests; the checker suite passed 14 tests.
-The Docker build reran the 89 Python tests with only the Node clock subprocess skipped because
-Node is intentionally absent from the runtime build stage. The hardened container reached
-Docker `healthy`, the public NPC flow auto-rolled Circuit Bot, and the documented two-human
-solver completed a real random scored match.
+The source suite passed 75 Python tests and 9 Node tests. The checker suite passed 14 tests.
+The Docker build reran all 75 Python tests (with its expected Node-only clock-test skip), the
+container reached `healthy`, and the exact four-capability solver command above completed a
+server-visible match through only public routes.
 
-The repository-wide `make check` passed with the workflow-matching rsctf `v0.1.102` image at
-digest `sha256:f18de802833eaa1f0f3e100187310d59038e30bfa676bacb864a6dae86a8beee`:
-two events and five challenges, with zero manifest errors and zero warnings.
+A fixed-rate local load held 100 matchmaking-state polls per second for 15 seconds against
+one active four-team match: 1,505 HTTP requests, zero failed checks, zero failed requests,
+14.24 ms p95, and 30.88 ms maximum response time. Every response retained `playing` state
+and an exact four-player roster.
+
+![Serpent Circuit fair matchmaking entry](assets/serpent-circuit-board.png)
+
+The screenshot is a genuine 1440×1250 capture of the current local-development service. It
+shows the exact-four-team FIFO matchmaking copy, single **Join queue** action, five-minute
+deadline rule, and absence of private-room, opponent-selection, NPC, and manual-start
+controls. It was captured at `2026-09-02T00:28:18Z`; no capability or player token is visible.
+The 322,557-byte PNG has SHA-256
+`5c0d4c25386ab5865b494b204820d703e41b1b9670268bfcf6b6f4f44a58ef2a`.
+
+```sh
+chromium --headless --no-sandbox --disable-gpu --hide-scrollbars \
+  --window-size=1440,1250 --virtual-time-budget=2500 \
+  --user-data-dir=/tmp/serpent-circuit-v5-screenshot \
+  --screenshot=solution/assets/serpent-circuit-board.png \
+  http://127.0.0.1:35039
+```
+
+The temporary browser profile was removed after the screenshot. Hidden-staging evidence and
+the exact committed identity remain pending while this record is `draft`.
 
 ## Notes
 
-- Local development requires `SERPENT_LOCAL_DEV=1`; it accepts syntactically valid local
-  capabilities but still stores only hashes.
-- Lobby rooms expire after 30 minutes without requests, active matches after two hours, and
-  finished rooms after ten minutes. The process caps state at 500 rooms and 2,000 seats.
-- A host can add the one NPC only while alone in a lobby. Any room that retains Circuit Bot
-  is practice-only even if another human joins before the host starts it.
-- The checker remains read-only. Its capability probe uses a deterministic non-roster value
-  and cannot allocate a room.
-- The classic board direction was inspired by
-  [`yashksaini/snakes-and-ladders-game` at `d8dc452`](https://github.com/yashksaini/snakes-and-ladders-game/tree/d8dc452601b7075ba21e3f81179fe57e30f4c64e)
-  after an earlier concept reference to
-  [`MichaelDepp/snake-ladder` at `7bf22a3`](https://github.com/MichaelDepp/snake-ladder/tree/7bf22a3d7f14c18984ab67782531fed1a297169a).
-  Neither reference publishes a license, so this package copies none of their code, assets,
-  board mappings, or screenshots.
-- A pure Snakes & Ladders outcome is random rather than skill-ranked. This revision rewards
-  relative furthest progress every completed tick instead of waiting for the match to finish;
-  confirm that this remains the intended warmup KotH policy during hidden staging.
-- Remaining release work: real two-team managed reporting rehearsal, normal-player access
-  checks, fresh human and NPC playtests, committed revision evidence, hidden staging, and
-  release review.
+- Local development requires `SERPENT_LOCAL_DEV=1`; syntactically valid local capabilities
+  are accepted but only their hashes are retained.
+- A waiting seat expires after 60 seconds without its own state poll. Waiting rooms otherwise
+  expire after 30 minutes, active state is bounded by the five-minute match timer, and
+  finished matches expire after ten minutes.
+- The checker remains read-only. Its deterministic non-roster capability probe cannot
+  allocate matchmaking state.
+- A pure Snakes & Ladders result is luck-driven. Tick scoring rewards relative furthest
+  progress throughout the match; the five-minute winner is a player-facing match result, not
+  a direct platform-points submission.

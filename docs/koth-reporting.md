@@ -9,12 +9,12 @@ validates the Crown, and calculates the scoreboard result.
 Three packages use this model:
 
 - [Serpent Circuit](../events/warmup/challenges/Koth/PPC/serpent-circuit/) owns its original
-  multiplayer Snake & Ladders room state and reports bounded `board-progress` evidence from
-  each completed 60-second tick of an active human-only match directly from the same process.
-  One team contributes at most one furthest-position row per tick; lobby, finished, and NPC
-  rooms do not carry progress into later ticks. Its optional server-controlled NPC is a
-  practice fallback: any room containing it emits no evidence. The player-facing HTTP
-  transport needs no gateway.
+  multiplayer Snake & Ladders state and reports bounded `board-progress` evidence from each
+  completed 60-second tick of an active four-team match directly from the same process. Its
+  server-controlled FIFO queue admits one seat per eligible capability, assigns opponents,
+  runs one five-minute match at a time, and starts the next full group automatically. One
+  team contributes at most one furthest-position row per tick; waiting and finished matches
+  do not carry progress into later ticks. The player-facing HTTP transport needs no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
   inside the Go coordinator. Its transport-only
