@@ -64,6 +64,8 @@ applies these gates without authorizing an import or enablement by itself.
 ## Hidden staging import
 
 - [ ] `.gzevent` remains hidden and the imported challenges remain disabled.
+- [ ] The warmup event shows KotH epoch/cycle/cooldown/confirmation values `12/6/1/2`
+      before either hill is enabled; the current importer does not apply this contract.
 - [ ] The scan reports exactly the warmup and main event, with the expected challenge count
       under each event root.
 - [ ] Every local service/generator build completed and its log was reviewed.
@@ -73,6 +75,9 @@ applies these gates without authorizing an import or enablement by itself.
       identity/state, and every intended rename or guarded tombstone was reviewed.
 - [ ] A&D or KotH changes passed a full multi-team lifecycle rehearsal, including
       scheduling, VPN/BYOC paths, flag delivery, checking, reset, and scoring.
+- [ ] Draft Control was acquired from a fresh player-visible target, reached confirmed
+      ownership for two consecutive checks, scored at least one healthy hold tick, and reset
+      cleanly at the six-tick cycle boundary.
 - [ ] Managed KotH reporting was exercised through an actual rsctf lifecycle: the target
       submitted bounded evidence, a reset rotated the credential, the stale target was
       rejected, and no child process inherited `RSCTF_KOTH_*` values.

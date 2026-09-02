@@ -83,6 +83,10 @@ validator or container-discovery script.
   managed-reporter origin. rsctf injects a lifecycle-bound secret into each managed target;
   it never belongs in Git, a manifest, Compose file, handout, or child gameplay process.
   Deploy `gateway/` only for a required transport adapter, never for scoring.
+- Before enabling the warmup hills, set the event's KotH epoch/cycle/cooldown/confirmation
+  values to `12/6/1/2`. The current Repository Bindings importer does not consume these
+  settings from `.gzevent`; leaving rsctf's `12/3/1/2` defaults makes Draft Control's
+  two-tick marker confirmation race the first cycle reset.
 
 The frozen main-event topology and immutable artifact identities are recorded in
 [docs/production.md](docs/production.md). The hidden warmup remains an unfrozen staging

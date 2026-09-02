@@ -70,6 +70,25 @@ See the [warmup](../events/warmup/.gzevent) and
 [main-event](../events/main-event/.gzevent) manifests for safe hidden staging
 configurations.
 
+### Warmup KotH crown-cycle settings
+
+The current Repository Bindings schema does not import KotH crown-cycle settings. Configure
+the warmup game in Admin before enabling either hill:
+
+| Setting | Required value |
+| --- | ---: |
+| KotH epoch ticks | `12` |
+| KotH cycle ticks | `6` |
+| Previous-champion cooldown ticks | `1` |
+| Claim-confirmation ticks | `2` |
+
+This is a required runtime contract, not optional tuning. Draft Control becomes available to
+players only after the new cycle target passes readiness. A three-tick cycle can reset the
+target before a newly written marker receives two complete confirmation observations. The
+six-tick cycle leaves a bounded acquisition window and still divides the 12-tick epoch.
+Apply these values only before official KotH scoring starts; rsctf correctly locks them after
+the official configuration is snapshotted.
+
 ## Common challenge keys
 
 | Key | Default | Notes |

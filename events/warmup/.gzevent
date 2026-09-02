@@ -14,6 +14,11 @@ practiceMode: true
 writeupRequired: false
 writeupNote: "No writeup is required for the warmup event."
 
+# Current Repository Bindings releases do not import KotH crown-cycle settings from
+# `.gzevent`. Before enabling any warmup hill, the operator must set epoch=12,
+# cycle=6, champion cooldown=1, and claim confirmation=2 in Admin event settings.
+# Draft Control's target becomes player-visible only after readiness; the platform
+# default cycle=3 does not leave enough ticks to confirm and score a new marker.
 ad:
   # Leaderboard evidence has a 20-second settlement lag. Contiguous 60-second
   # settlement windows each own one completed UTC-minute Serpent wave; the

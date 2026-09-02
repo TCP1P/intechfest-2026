@@ -35,6 +35,11 @@ because its manifest parses or its author solver works.
    native ratios and correct Crown behavior for two teams, a read-only checker state
    comparison, and a reset test proving the old reporter credential receives `401` before
    the new target reports successfully.
+   For the INTECHFEST warmup, fail the review unless the pre-scoring Admin event state has
+   KotH epoch/cycle/cooldown/confirmation values `12/6/1/2`. Also require Draft Control to
+   progress from a fresh ready target through two marker confirmations, one healthy scored
+   hold, and the six-tick reset boundary. Repository Bindings does not currently import this
+   event-level KotH contract.
 7. Return `ready`, `not ready`, or `blocked`, followed by passed evidence and missing evidence
    tied to the exact revision. Never turn a missing gate into an assumed pass.
 
