@@ -9,7 +9,7 @@ must not be treated as permission to make either event public or enable a challe
 | Event | Root | Current challenges |
 | --- | --- | ---: |
 | Warmup | `events/warmup/` | 3 |
-| Main event | `events/main-event/` | 2 |
+| Main event | `events/main-event/` | 3 |
 
 The warmup currently contains:
 
@@ -19,6 +19,7 @@ The warmup currently contains:
 
 The main event currently contains:
 
+- `Tower of Babel` — shared managed-reporting Leaderboard KotH in `Pwn`.
 - `Rythme` — shared managed-reporting Leaderboard KotH in `Reverse`.
 - `Minions in 32K` — shared managed-reporting Leaderboard KotH in `PPC`.
 
@@ -79,7 +80,7 @@ validator or container-discovery script.
 - Keep both events hidden and every imported challenge disabled until the exact revision
   passes the release checklist, a fresh blind playtest, and hidden staging.
 - Keep `Draft Control` on the Boot2Root/Marker claim source. Enable Leaderboard for
-  `Serpent Circuit`, `Rythme`, and `Minions in 32K`, and configure rsctf's private
+  `Serpent Circuit`, `Tower of Babel`, `Rythme`, and `Minions in 32K`, and configure rsctf's private
   managed-reporter origin. rsctf injects a lifecycle-bound secret into each managed target;
   it never belongs in Git, a manifest, Compose file, handout, or child gameplay process.
   Deploy `gateway/` only for a required transport adapter, never for scoring.

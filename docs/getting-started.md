@@ -2,7 +2,7 @@
 
 This repository is the private rsctf Repository Bindings source for two independent
 INTECHFEST 2026 events. The warmup has one BYOC A&D challenge, one marker KotH challenge,
-and one managed Leaderboard KotH scoring game. The main event has two shared Leaderboard
+and one managed Leaderboard KotH scoring game. The main event has three shared Leaderboard
 KotH challenges. Start from a real contract, not a placeholder copied only to make a
 directory look populated.
 
@@ -49,6 +49,7 @@ The current packages are examples of this repository's actual delivery model:
 | `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared multiplayer browser/API game, fair FIFO matchmaking, read-only checker, in-process managed reporter | exactly four authenticated teams are assigned per five-minute match; one match runs at a time and each completed active tick produces one bounded furthest-progress row per team |
 | `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |
 | `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, optional transport gateway | a managed target reports evidence but needs HTTPS/UDP adaptation |
+| `events/main-event/challenges/Koth/Pwn/tower-of-babel/` | hybrid shared TCP service, player handout, read-only checker, in-process managed reporter | four-architecture shellcode relay with bounded next-wave ward patches; direct TCP needs no gateway |
 
 These are mode-specific examples, not interchangeable templates. For a new mode, use the
 [authoring contract](authoring-contract.md) and [manifest reference](configuration.md), then

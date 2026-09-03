@@ -58,13 +58,12 @@ Do not use author or solution context as the blind solver.
   writes the current player capability to `/koth/king`; it has no managed reporter and must
   not be configured as Leaderboard.
 - `Serpent Circuit` is a shared managed Leaderboard KotH scoring game. The target owns
-  server-authoritative four-seat Snake & Ladders rooms. Other humans may join during a
-  visible 15-second matchmaking countdown; remaining seats are then filled by
-  server-controlled NPCs. The target retains only authenticated human capability hashes and
-  reports one bounded furthest-board-progress result for every active human team in each
-  completed 60-second scoring tick. NPCs never receive capabilities and never emit
-  Leaderboard evidence. Lobby and finished rooms do not carry progress into later ticks. It
-  has no marker or gateway.
+  server-authoritative two-to-four-seat Snake & Ladders rooms, retains only authenticated
+  human capability hashes, and reports one bounded furthest-board-progress result for every
+  active human team in each completed 60-second scoring tick. A lone host may add one
+  server-controlled NPC, but every NPC room is practice-only and emits no Leaderboard
+  evidence. Lobby and finished rooms do not carry progress into later ticks. It has no marker
+  or gateway.
 
 All warmup checkers are bounded and read-only. The A&D checker receives the current flag;
 both KotH checkers receive no flag and never inspect or alter their claim source.
@@ -77,6 +76,10 @@ both KotH checkers receive no flag and never inspect or alter their claim source
 - `Minions in 32K` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
   ZIP; the rsctf target owns identity, match validation, and scoring evidence, while the
   separately deployed `gateway/` only adapts HTTPS and UDP transport.
+- `Tower of Babel` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
+  TCP handout; the target owns authenticated four-architecture relay validation, native
+  `babel-mastery` evidence, and first-solver-owned bounded ward patches with replay-canary
+  fallback. It has no gateway.
 
 Both challenge checkers are bounded and read-only. They receive no flag and never inspect or
 alter the KotH claim source.

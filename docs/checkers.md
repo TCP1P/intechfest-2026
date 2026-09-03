@@ -21,6 +21,9 @@ for a compatible protocol:
 - [Minions in 32K checker](../events/main-event/challenges/Koth/PPC/minions-in-32k/checker/)
   validates health and an active pinned-certificate QUIC quality probe without reading the
   gateway or scoring source.
+- [Tower of Babel checker](../events/main-event/challenges/Koth/Pwn/tower-of-babel/checker/)
+  validates the read-only TCP greeting, wave metadata, and unauthenticated rejection paths
+  without creating a relay session or touching managed evidence.
 
 The [Parcel Panic checker](../events/warmup/challenges/AD/Web/parcel-panic/checker/) is the
 self-hosted A&D example. It verifies the current injected flag through the legitimate vault
