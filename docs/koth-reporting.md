@@ -10,11 +10,12 @@ Three packages use this model:
 
 - [Serpent Circuit](../events/warmup/challenges/Koth/PPC/serpent-circuit/) owns its original
   multiplayer Snake & Ladders state and reports bounded `board-progress` evidence from each
-  completed 60-second tick of an active four-team match directly from the same process. Its
-  server-controlled FIFO queue admits one seat per eligible capability, assigns opponents,
-  runs one five-minute match at a time, and starts the next full group automatically. One
-  team contributes at most one furthest-position row per tick; waiting and finished matches
-  do not carry progress into later ticks. The player-facing HTTP transport needs no gateway.
+  completed 60-second tick of an active four-seat match directly from the same process. Its
+  server-controlled FIFO queue admits one seat per eligible capability, waits 15 seconds for
+  other humans, fills remaining seats with capability-free NPCs, and runs one five-minute
+  match at a time. One authenticated team contributes at most one furthest-position row per
+  tick; NPCs contribute none, and waiting and finished matches do not carry progress into
+  later ticks. The player-facing HTTP transport needs no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
   inside the Go coordinator. Its transport-only

@@ -22,7 +22,7 @@ VALID_HEALTH = {
     "mode": "managed",
     "matchSeconds": 300,
     "players": 0,
-    "protocol": "serpent-circuit/5",
+    "protocol": "serpent-circuit/6",
     "reporter": {
         "alive": True,
         "consecutiveFailures": 0,
@@ -34,13 +34,14 @@ VALID_HEALTH = {
 }
 VALID_RULES = {
     "name": "Serpent Circuit",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "boardSize": 100,
     "startPosition": 0,
     "finishPosition": 100,
     "minPlayers": 4,
     "maxPlayers": 4,
     "matchSeconds": 300,
+    "matchmakingSeconds": 15,
     "turnSeconds": 30,
     "scoringWaveSeconds": 60,
     "objective": "board-progress",

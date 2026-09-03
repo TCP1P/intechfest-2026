@@ -3,21 +3,23 @@ name: "Serpent Circuit"
 author: "TCP1P"
 description: |
   Enter the server-controlled matchmaking queue with your current KotH
-  capability. The server assigns teams in arrival order, fills every match
-  with exactly four distinct authenticated teams, and starts it automatically.
-  Private room codes, chosen opponents, NPCs, and manual starts are not part of
-  ranked play. If another assigned match is active, keep the game page open
-  while your group waits for its turn.
+  capability. The server assigns teams in arrival order. Other teams may join
+  during the visible 15-second countdown; when it ends, the server fills any
+  empty seats with NPCs and starts the oldest queued match automatically.
+  Every match has exactly four seats. Private room codes, chosen opponents, and
+  manual starts are not part of ranked play. If another assigned match is
+  active, keep the game page open while your group waits for its turn.
 
   Take turns rolling a server-generated die. Climb ladders, slide down snakes,
   land exactly on square 100, and remember that a six grants another turn.
-  Expired turns are rolled automatically after 30 seconds. Reaching square 100
+  NPC turns are automatic, and expired human turns are rolled automatically
+  after 30 seconds. Reaching square 100
   wins immediately; otherwise the sole team on the highest square wins when
   the fixed five-minute match deadline expires. A tied highest square produces
   no match winner.
 
   During an active match, every completed 60-second scoring tick
-  reports each team's furthest server-confirmed square held during that tick as
+  reports each authenticated team's furthest server-confirmed square held during that tick as
   a bounded `board-progress` ratio. The sole greatest positive result earns the
   Crown; an exact tie earns no Crown. Finished and waiting matches do not carry
   progress into later ticks. The game retains only authenticated capability

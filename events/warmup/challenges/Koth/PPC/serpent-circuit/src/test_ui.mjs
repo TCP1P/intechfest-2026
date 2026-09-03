@@ -27,8 +27,8 @@ test("browser implements queue, reconnect, state, and roll lifecycle", () => {
   }
   assert.doesNotMatch(app, /\/api\/rooms|roomCode|addNpc|start_room/);
   assert.match(app, /localStorage\.setItem\(SAVED_ROOM_KEY/);
-  assert.match(app, /serpent-circuit-match-v5/);
-  assert.match(app, /raw\.protocolVersion !== 5/);
+  assert.match(app, /serpent-circuit-match-v6/);
+  assert.match(app, /raw\.protocolVersion !== 6/);
   assert.match(app, /raw\.minPlayers !== 4/);
   assert.match(app, /raw\.matchSeconds !== 300/);
   assert.match(app, /playerToken: state\.playerToken/);
@@ -55,6 +55,8 @@ test("queue and turn state are announced without relying only on color", () => {
   assert.match(app, /tags\.push\("Winner"\)/);
   assert.match(app, /room\.queueAhead > 0/);
   assert.match(app, /Match starts automatically/);
+  assert.match(app, /Match starts in \$\{seconds\}s/);
+  assert.match(app, /current\.isNpc/);
   assert.match(app, /state\.room\.matchDeadline/);
   assert.match(app, /move\.automatic \? "auto-rolled" : "rolled"/);
   assert.match(app, /piece\.textContent = String\(index \+ 1\)/);

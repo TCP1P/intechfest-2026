@@ -1,7 +1,7 @@
 import { makeServerClock, serverNow } from "/assets/clock.mjs";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const SAVED_ROOM_KEY = "serpent-circuit-match-v5";
+const SAVED_ROOM_KEY = "serpent-circuit-match-v6";
 const POLL_INTERVAL_MS = 1_000;
 const DIE_FACES = ["?", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const VALID_COLORS = new Set(["coral", "blue", "green", "purple"]);
@@ -70,6 +70,7 @@ function normalizeRules(raw) {
     "finishPosition",
     "maxPlayers",
     "matchSeconds",
+    "matchmakingSeconds",
     "minPlayers",
     "name",
     "objective",
@@ -86,12 +87,13 @@ function normalizeRules(raw) {
   if (
     raw.name !== "Serpent Circuit"
     || raw.objective !== "board-progress"
-    || raw.protocolVersion !== 5
+    || raw.protocolVersion !== 6
     || raw.boardSize !== 100
     || raw.startPosition !== 0
     || raw.finishPosition !== 100
     || raw.minPlayers !== 4
     || raw.maxPlayers !== 4
+    || raw.matchmakingSeconds !== 15
     || raw.turnSeconds !== 30
     || raw.matchSeconds !== 300
     || raw.scoringWaveSeconds !== 60
@@ -135,19 +137,21 @@ function normalizePlayer(raw) {
     !raw
     || typeof raw !== "object"
     || Array.isArray(raw)
-    || Object.keys(raw).sort().join("|") !== "color|id|name|position"
+    || Object.keys(raw).sort().join("|") !== "color|id|isNpc|name|position"
   ) {
     throw new Error("The server returned an invalid player.");
   }
   const color = boundedString(raw.color, "player color", 16);
   if (
     !VALID_COLORS.has(color)
+    || typeof raw.isNpc !== "boolean"
   ) {
     throw new Error("The server returned invalid player metadata.");
   }
   return {
     color,
     id: boundedString(raw.id, "player ID"),
+    isNpc: raw.isNpc,
     name: boundedString(raw.name, "player name", 48),
     position: integer(raw.position, "player position", 0, 100),
   };
@@ -201,6 +205,7 @@ function normalizeRoom(raw) {
     "currentPlayerId",
     "lastMove",
     "matchDeadline",
+    "matchStartsAt",
     "maxPlayers",
     "minPlayers",
     "players",
@@ -273,11 +278,18 @@ function normalizeRoom(raw) {
   if ((raw.status === "playing") !== (matchDeadline !== null)) {
     throw new Error("The server returned an inconsistent match deadline.");
   }
+  const matchStartsAt = raw.matchStartsAt === null
+    ? null
+    : integer(raw.matchStartsAt, "match start time", 0, Number.MAX_SAFE_INTEGER);
+  if ((raw.status === "waiting") !== (matchStartsAt !== null)) {
+    throw new Error("The server returned an inconsistent match start time.");
+  }
   return {
     ...raw,
     currentPlayerId,
     lastMove: normalizeLastMove(raw.lastMove, ids),
     matchDeadline,
+    matchStartsAt,
     players,
     serverTime: integer(raw.serverTime, "server time", 0, Number.MAX_SAFE_INTEGER),
     turnDeadline,
@@ -503,6 +515,7 @@ function renderPlayers() {
     const tags = [];
     if (player.id === state.room.currentPlayerId) tags.push("Current turn");
     if (player.id === state.room.winnerId) tags.push("Winner");
+    if (player.isNpc) tags.push("NPC");
     role.textContent = tags.join(" · ") || "Player";
     details.append(name, role);
     const position = document.createElement("span");
@@ -550,12 +563,10 @@ function renderTurn() {
   elements.newRoom.hidden = room.status !== "finished";
 
   if (room.status === "waiting") {
-    const missing = room.maxPlayers - room.players.length;
     elements.die.textContent = "?";
-    elements.turnCountdown.textContent = `${room.players.length} of ${room.maxPlayers} teams ready`;
     elements.turnLabel.textContent = room.queueAhead > 0
       ? `${room.queueAhead} match${room.queueAhead === 1 ? "" : "es"} ahead`
-      : missing > 0 ? `Waiting for ${missing} more team${missing === 1 ? "" : "s"}` : "Next match ready";
+      : `${room.players.length} human team${room.players.length === 1 ? "" : "s"} ready`;
     elements.gameAction.textContent = "Match starts automatically";
     elements.gameAction.disabled = true;
     return;
@@ -576,19 +587,32 @@ function renderTurn() {
   const current = playerById(room.currentPlayerId);
   const isYourTurn = current.id === room.you.id;
   elements.die.textContent = room.lastMove ? DIE_FACES[room.lastMove.roll] : "?";
-  elements.turnLabel.textContent = isYourTurn ? "Your turn — roll the dice" : `${current.name}'s turn`;
+  elements.turnLabel.textContent = isYourTurn
+    ? "Your turn — roll the dice"
+    : current.isNpc ? `${current.name}'s automatic turn` : `${current.name}'s turn`;
   elements.gameAction.textContent = isYourTurn ? "Roll dice" : "Waiting for roll";
   elements.gameAction.disabled = !isYourTurn || state.busy;
 }
 
 function renderCountdown() {
-  if (!state.room || state.room.status !== "playing" || !state.clock) {
+  if (!state.room || !state.clock) {
     return;
   }
   let turnRemaining;
   let matchRemaining;
   try {
     const current = serverNow(state.clock, performance.now());
+    if (state.room.status === "waiting") {
+      const startRemaining = Math.max(0, state.room.matchStartsAt - current);
+      const seconds = Math.ceil(startRemaining / 1_000);
+      elements.turnCountdown.textContent = seconds > 0
+        ? `Match starts in ${seconds}s`
+        : "Starting match…";
+      return;
+    }
+    if (state.room.status !== "playing") {
+      return;
+    }
     turnRemaining = Math.max(0, state.room.turnDeadline - current);
     matchRemaining = Math.max(0, state.room.matchDeadline - current);
   } catch {
@@ -606,7 +630,7 @@ function renderRoom() {
   elements.roomHelp.textContent = room.status === "waiting"
     ? room.queueAhead > 0
       ? "Another assigned match is still playing. Keep this page open to hold your queue seat."
-      : "The server is filling this group in arrival order. Keep this page open."
+      : "Other teams may join before the countdown ends. Empty seats become NPCs automatically."
     : room.status === "playing"
       ? `Ranked match · Turn ${room.turnNumber} · highest square wins at the deadline`
       : "This assigned match is complete.";
@@ -783,7 +807,7 @@ async function pollRoom() {
     const previousMove = state.room?.turnNumber;
     applyRoom(response.document, response.sent, response.received);
     if (previousStatus === "waiting" && state.room.status === "playing") {
-      setStatus("Four teams are ready. Your match started automatically.", "success");
+      setStatus("Your assigned match started automatically.", "success");
     } else if (previousMove !== state.room.turnNumber && state.room.lastMove) {
       setStatus(describeLastMove(), "success");
     }
@@ -856,7 +880,7 @@ async function initialize() {
       await reconnect();
       if (state.room) return;
     }
-    setStatus("Enter your capability to join fair four-team matchmaking.", "success");
+    setStatus("Enter your capability to join automatic four-seat matchmaking.", "success");
   } catch (error) {
     elements.runtimeBadge.textContent = "Unavailable";
     setStatus(error.message, "error");

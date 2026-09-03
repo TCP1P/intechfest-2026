@@ -61,21 +61,22 @@ class GameTests(unittest.TestCase):
         code = app.seat_index[seats[0]["playerToken"]][0]
         return seats, code
 
-    def test_rules_publish_exact_four_player_timed_contract(self):
+    def test_rules_publish_four_seat_npc_fill_contract(self):
         rules = app.rules_document()
-        self.assertEqual(rules["protocolVersion"], 5)
+        self.assertEqual(rules["protocolVersion"], 6)
         self.assertEqual(rules["minPlayers"], 4)
         self.assertEqual(rules["maxPlayers"], 4)
+        self.assertEqual(rules["matchmakingSeconds"], 15)
         self.assertEqual(rules["matchSeconds"], 300)
         self.assertEqual(rules["turnSeconds"], 30)
         self.assertEqual(rules["objective"], "board-progress")
         self.assertEqual(len(rules["transitions"]), 14)
         text = " ".join(rules["rules"])
         self.assertIn("server-controlled FIFO queue", text)
-        self.assertIn("exactly four distinct authenticated teams", text)
+        self.assertIn("exactly four seats", text)
+        self.assertIn("server-controlled NPCs", text)
         self.assertIn("highest square", text)
         self.assertNotIn("private room", text.lower())
-        self.assertNotIn("NPC", text)
 
     def test_server_applies_ladders_snakes_and_exact_finish(self):
         self.assertEqual(app.apply_roll(0, 3), (24, 3, 24))
@@ -95,7 +96,7 @@ class GameTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "incomplete"):
                 app.matchmake(LOCAL_TOKENS[0], "Alice", 1_800_100)
 
-    def test_match_starts_automatically_only_on_fourth_distinct_team(self):
+    def test_match_starts_immediately_on_fourth_distinct_team(self):
         seats = self.enqueue(3)
         self.assertTrue(all(seat["room"]["status"] == "waiting" for seat in seats))
         fourth = self.enqueue(1, first_token=3, timestamp=1_800_003)[0]
@@ -106,6 +107,31 @@ class GameTests(unittest.TestCase):
         self.assertNotIn("code", fourth["room"])
         encoded = json.dumps(fourth)
         self.assertFalse(any(token in encoded for token in LOCAL_TOKENS[:4]))
+
+    def test_match_countdown_fills_empty_seats_with_npcs(self):
+        seat = self.enqueue(1)[0]
+        self.assertEqual(seat["room"]["status"], "waiting")
+        self.assertEqual(seat["room"]["matchStartsAt"], 1_815_000)
+
+        state = app.room_state(seat["playerToken"], 1_815_000)
+
+        self.assertEqual(state["status"], "playing")
+        self.assertIsNone(state["matchStartsAt"])
+        self.assertEqual(len(state["players"]), 4)
+        self.assertEqual(sum(player["isNpc"] for player in state["players"]), 3)
+        self.assertFalse(next(player for player in state["players"] if player["id"] == state["you"]["id"])["isNpc"])
+        self.assertEqual(len(app.seat_index), 1)
+
+    def test_npc_turn_uses_short_automatic_deadline(self):
+        seat = self.enqueue(1)[0]
+        state = app.room_state(seat["playerToken"], 1_815_000)
+        with patch.object(app.secrets, "randbelow", return_value=0):
+            state = app.roll_room(seat["playerToken"], "action_human_01", 1_815_001)
+            self.assertTrue(next(player for player in state["players"] if player["id"] == state["currentPlayerId"])["isNpc"])
+            self.assertEqual(state["turnDeadline"], 1_817_001)
+            state = app.room_state(seat["playerToken"], 1_817_001)
+        self.assertTrue(state["lastMove"]["automatic"])
+        self.assertTrue(next(player for player in state["players"] if player["id"] == state["lastMove"]["playerId"])["isNpc"])
 
     def test_matchmaking_retry_is_idempotent_and_cannot_duplicate_a_team(self):
         with patch.dict(os.environ, {"SERPENT_LOCAL_DEV": "1"}, clear=True):
@@ -225,6 +251,20 @@ class GameTests(unittest.TestCase):
         self.assertEqual(sorted(event["earned"] for event in feed["events"]), [20, 40, 60, 80])
         self.assertTrue(all(event["possible"] == 100 for event in feed["events"]))
 
+    def test_npc_match_records_only_authenticated_human_progress(self):
+        seat = self.enqueue(1)[0]
+        app.room_state(seat["playerToken"], 1_815_000)
+        with app.state_lock:
+            code = app.seat_index[seat["playerToken"]][0]
+            room = app.rooms[code]
+            for player, position in zip(room.players, [40, 60, 80, 90], strict=True):
+                player.position = position
+            room.turn_deadline_ms = 2_000_000
+            app._record_room_progress_locked(room, 1_800_000)
+        feed = app.read_evidence_page(0, current_time_ms=1_860_000)
+        self.assertEqual(len(feed["events"]), 1)
+        self.assertEqual(feed["events"][0]["earned"], 40)
+
     def test_delayed_checkpoint_never_records_after_match_deadline(self):
         _seats, code = self.active_match()
         with app.state_lock:
@@ -292,7 +332,7 @@ class GameTests(unittest.TestCase):
             with patch.dict(os.environ, MANAGED_ENV, clear=True):
                 status, document = app.health_document()
                 self.assertEqual(status, 200)
-                self.assertEqual(document["protocol"], "serpent-circuit/5")
+                self.assertEqual(document["protocol"], "serpent-circuit/6")
                 with patch("reporter.time.monotonic", return_value=100.0):
                     for _ in range(reporter.HEALTH_FAILURE_THRESHOLD):
                         app.reporter_runtime.mark_retrying()

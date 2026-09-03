@@ -31,11 +31,11 @@
       <section id="entry-panel" class="entry-layout" aria-labelledby="entry-title" hidden>
         <article class="panel welcome-card">
           <div class="panel-heading">
-            <p class="kicker">Fair matchmaking · exactly 4 teams</p>
+            <p class="kicker">Fair matchmaking · exactly 4 seats</p>
             <h2 id="entry-title">Enter the Serpent Circuit queue</h2>
             <p>
-              The server assigns teams in arrival order. Nobody can choose their opponents,
-              and a match starts automatically when four authenticated teams are ready.
+              The server assigns teams in arrival order. Nobody can choose their opponents.
+              After 15 seconds, empty seats become NPCs and the match starts automatically.
             </p>
           </div>
 
@@ -95,7 +95,7 @@
           <p class="kicker">How to play</p>
           <h2 id="quick-rules-title">Race to square 100</h2>
           <ol class="rule-steps">
-            <li><span aria-hidden="true">1</span><p>Join the queue and wait for the server to assign four teams.</p></li>
+            <li><span aria-hidden="true">1</span><p>Join the queue. Other teams have 15 seconds to join before NPCs fill empty seats.</p></li>
             <li><span aria-hidden="true">2</span><p>On your turn, press <strong>Roll dice</strong> before the timer ends.</p></li>
             <li><span aria-hidden="true">3</span><p>Reach 100 first, or hold the highest square when five minutes expire.</p></li>
           </ol>
@@ -114,7 +114,7 @@
               <h2 id="room-title" tabindex="-1">Match queue</h2>
             </div>
           </div>
-          <p id="room-help" class="room-help">Waiting for four authenticated teams.</p>
+          <p id="room-help" class="room-help">Waiting for automatic matchmaking.</p>
 
           <h3 class="players-heading">Players <span id="player-count">0/4</span></h3>
           <ol id="player-list" class="player-list" aria-label="Players in this room"></ol>

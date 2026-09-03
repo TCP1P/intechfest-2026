@@ -20,5 +20,5 @@ COPY --from=tests --chown=nobody:nogroup /test/static/ /app/static/
 USER nobody
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=2s --retries=3 \
-  CMD ["python", "-c", "import json,sys,urllib.request; value=json.load(urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=2)); sys.exit(value.get('status')!='ok' or value.get('protocol')!='serpent-circuit/5')"]
+  CMD ["python", "-c", "import json,sys,urllib.request; value=json.load(urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=2)); sys.exit(value.get('status')!='ok' or value.get('protocol')!='serpent-circuit/6')"]
 CMD ["python", "-u", "/app/app.py"]

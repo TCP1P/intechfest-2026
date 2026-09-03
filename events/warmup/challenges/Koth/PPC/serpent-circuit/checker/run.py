@@ -36,6 +36,7 @@ RULE_KEYS = {
     "minPlayers",
     "maxPlayers",
     "matchSeconds",
+    "matchmakingSeconds",
     "turnSeconds",
     "scoringWaveSeconds",
     "objective",
@@ -61,12 +62,12 @@ EXPECTED_TRANSITIONS = [
 ]
 EXPECTED_RULES = [
     "Submit one current KotH capability to enter the server-controlled FIFO queue.",
-    "Every match has exactly four distinct authenticated teams and starts automatically when it reaches the front of the queue.",
+    "Every match has exactly four seats. After the matchmaking countdown, empty seats become server-controlled NPCs and the oldest queued match starts automatically.",
     "Players take turns rolling one server-generated six-sided die.",
     "Ladders climb and snakes slide immediately after a legal move.",
     "A roll must land exactly on 100; an overshoot leaves the piece in place.",
-    "Rolling a six grants another turn, and an expired turn is rolled automatically.",
-    "During a human-only match, each completed 60-second scoring tick records every team's furthest server-confirmed square in that tick.",
+    "Rolling a six grants another turn. NPC turns and expired human turns are rolled automatically.",
+    "During an active match, each completed 60-second scoring tick records every authenticated team's furthest server-confirmed square in that tick.",
     "The first player to reach 100 wins; otherwise the sole player on the highest square wins when the five-minute match deadline expires.",
 ]
 
@@ -176,7 +177,7 @@ def _validate_health(document: dict[str, Any]) -> None:
         document["scoringReady"], bool
     ):
         raise Mumble("the service did not report a managed lifecycle state")
-    if document["protocol"] != "serpent-circuit/5":
+    if document["protocol"] != "serpent-circuit/6":
         raise Mumble("the health response reported the wrong protocol")
     if (
         document["turnSeconds"] != 30
@@ -231,13 +232,14 @@ def _validate_rules(document: dict[str, Any]) -> None:
         raise Mumble("the rules response shape was incorrect")
     expected_scalars = {
         "name": "Serpent Circuit",
-        "protocolVersion": 5,
+        "protocolVersion": 6,
         "boardSize": 100,
         "startPosition": 0,
         "finishPosition": 100,
         "minPlayers": 4,
         "maxPlayers": 4,
         "matchSeconds": 300,
+        "matchmakingSeconds": 15,
         "turnSeconds": 30,
         "scoringWaveSeconds": 60,
         "objective": "board-progress",
