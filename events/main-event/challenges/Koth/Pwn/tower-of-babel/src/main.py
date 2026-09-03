@@ -31,6 +31,7 @@ WAVE_FINALIZATION_LAG_MS = 2_000
 MAX_PAYLOAD_BYTES = 32 * 1024
 MAX_LINE_BYTES = 70 * 1024
 MAX_ATTEMPTS_PER_TEAM = 12
+MAX_TEAMS_PER_WAVE = 2_000
 MAX_PATTERNS = 8
 MAX_PATTERN_BYTES = 32
 MAX_PATCH_ATTEMPTS = 3
@@ -105,6 +106,7 @@ class Wave:
     wave_id: str
     stages: tuple[StageSpec, ...]
     active_patch: tuple[tuple[str, str], ...]
+    active_teams: set[str] = field(default_factory=set)
     attempts: dict[str, Attempt] = field(default_factory=dict)
     attempt_counts: dict[str, int] = field(default_factory=dict)
     finalized: bool = False
@@ -115,6 +117,7 @@ class Wave:
     patch_owner: str | None = None
     patch_revision: int = 0
     ward_status: str = "empty"
+    patch_attempts: int = 0
 
     @property
     def end_ms(self) -> int:
@@ -139,10 +142,9 @@ def _patch_public(patterns: tuple[tuple[str, str], ...]) -> list[dict[str, str]]
 
 def _pattern_contains_required_syscall(arch: str, pattern: bytes) -> bool:
     required = bytes.fromhex(ARCHITECTURES[ARCH_BY_ID[arch]]["syscall_hex"])
-    return any(
-        required[offset : offset + len(pattern)] == pattern
-        for offset in range(len(required) - len(pattern) + 1)
-    )
+    # The runner wards any matching substring, so reject both a partial opcode
+    # pattern and a longer pattern that embeds the complete mandatory opcode.
+    return pattern in required or required in pattern
 
 
 def validate_patch(value: object) -> tuple[tuple[str, str], ...]:
@@ -290,6 +292,7 @@ class ArenaState:
                 "limits": {
                     "maxPayloadBytes": MAX_PAYLOAD_BYTES,
                     "maxAttemptsPerTeam": MAX_ATTEMPTS_PER_TEAM,
+                    "maxTeamsPerWave": MAX_TEAMS_PER_WAVE,
                     "maxPatchPatterns": MAX_PATTERNS,
                     "maxPatchBytes": MAX_PATTERN_BYTES,
                     "maxPatchAttempts": MAX_PATCH_ATTEMPTS,
@@ -303,6 +306,16 @@ class ArenaState:
         with self._lock:
             return wave.attempt_counts.get(team, 0) < MAX_ATTEMPTS_PER_TEAM and not wave.finalized
 
+    def register_team(self, wave: Wave, team: str) -> bool:
+        """Keep one immutable per-wave roster row for every authenticated team."""
+        with self._lock:
+            if wave.finalized or (
+                team not in wave.active_teams and len(wave.active_teams) >= MAX_TEAMS_PER_WAVE
+            ):
+                return False
+            wave.active_teams.add(team)
+            return True
+
     @staticmethod
     def _better(candidate: Attempt, prior: Attempt | None) -> bool:
         if prior is None or candidate.score > prior.score:
@@ -315,7 +328,7 @@ class ArenaState:
 
     def record(self, wave: Wave, team: str, attempt: Attempt) -> None:
         with self._lock:
-            if wave.finalized:
+            if wave.finalized or not self.register_team(wave, team):
                 return
             wave.attempt_counts[team] = wave.attempt_counts.get(team, 0) + 1
             prior = wave.attempts.get(team)
@@ -324,7 +337,7 @@ class ArenaState:
 
     def update_best(self, wave: Wave, team: str, attempt: Attempt) -> None:
         with self._lock:
-            if wave.finalized:
+            if wave.finalized or not self.register_team(wave, team):
                 return
             prior = wave.attempts.get(team)
             if self._better(attempt, prior):
@@ -342,6 +355,18 @@ class ArenaState:
     def can_patch(self, wave: Wave, team: str) -> bool:
         with self._lock:
             return not wave.finalized and wave.first_solver_team == team
+
+    def consume_patch_attempt(self, wave: Wave, team: str) -> bool:
+        """Consume one patch attempt from the shared first-solver wave budget."""
+        with self._lock:
+            if (
+                wave.finalized
+                or wave.first_solver_team != team
+                or wave.patch_attempts >= MAX_PATCH_ATTEMPTS
+            ):
+                return False
+            wave.patch_attempts += 1
+            return True
 
     def is_first_solver(self, wave: Wave, team: str) -> bool:
         with self._lock:
@@ -402,11 +427,10 @@ class ArenaState:
                 teams = [
                     {
                         "tokenHash": team,
-                        "earned": attempt.earned,
-                        "possible": attempt.possible,
+                        "earned": wave.attempts[team].earned if team in wave.attempts else 0,
+                        "possible": wave.attempts[team].possible if team in wave.attempts else 5 * (MAX_PAYLOAD_BYTES + 1),
                     }
-                    for team, attempt in sorted(wave.attempts.items())
-                    if attempt.earned > 0
+                    for team in sorted(wave.active_teams | wave.attempts.keys())
                 ]
                 waves.append({"waveStart": wave.start_ms, "endedAtUnixMs": wave.end_ms, "teams": teams})
             # Keep a bounded history; rsctf's context window is authoritative.
@@ -561,7 +585,6 @@ class Session:
     last_relay_complete: bool = False
     last_payload: str | None = None
     first_solver: bool = False
-    patch_attempts: int = 0
 
 
 HELP_TEXT = (
@@ -612,6 +635,9 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
                 send(f"ERR auth: {error}")
                 continue
             wave = state.current()
+            if not state.register_team(wave, team_hash):
+                send("ERR wave-roster-limit")
+                continue
             session = Session(
                 team_hash,
                 team_name,
@@ -638,8 +664,8 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
             attempt = Attempt(depth, len(argument) // 2)
             session.last_attempt = attempt
             session.last_payload = argument.lower()
-            # Count every bounded execution against the per-team budget; zero-depth
-            # probes are not emitted as scoring rows but cannot be used for DoS.
+            # Count every bounded execution against the per-team budget; the
+            # active-team roster still emits zero-progress rows for the wave.
             session.last_relay_complete = depth == 4 and status == "complete"
             if not session.last_relay_complete:
                 state.record(session.wave, session.team_hash, attempt)
@@ -689,15 +715,14 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
             if not state.can_patch(session.wave, session.team_hash):
                 send("ERR patch-locked")
                 continue
-            if session.patch_attempts >= MAX_PATCH_ATTEMPTS:
-                send("ERR patch-attempt-limit")
-                continue
             try:
                 patch = validate_patch(json.loads(argument))
             except (ValueError, json.JSONDecodeError):
                 send("ERR invalid-patch")
                 continue
-            session.patch_attempts += 1
+            if not state.consume_patch_attempt(session.wave, session.team_hash):
+                send("ERR patch-attempt-limit")
+                continue
             canary_payload = session.wave.first_solver_payload
             if not canary_payload:
                 send("ERR canary-unavailable")
@@ -732,8 +757,10 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
                 "revision": revision,
                 "canaryDepth": canary_depth,
             }))
+        elif command == "STATUS" and not argument and session is not None:
+            send(_json_line("STATUS ", state.status(session.wave, session.team_hash)))
         elif command == "STATUS" and not argument:
-            send(_json_line("STATUS ", state.status(session.wave, session.team_hash if session else None)))
+            send("ERR auth-required")
         elif command == "QUIT" and not argument:
             send("BYE")
             return

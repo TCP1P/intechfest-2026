@@ -49,7 +49,7 @@ def info_response():
         "stages": stages,
         "activeWard": [],
         "ward": {"status": "empty", "revision": 0, "effectiveWave": None, "owner": None, "fallback": None},
-        "limits": {"maxPayloadBytes": 32768, "maxAttemptsPerTeam": 12, "maxPatchPatterns": 8, "maxPatchBytes": 32, "maxPatchAttempts": 3},
+        "limits": {"maxPayloadBytes": 32768, "maxAttemptsPerTeam": 12, "maxTeamsPerWave": 2000, "maxPatchPatterns": 8, "maxPatchBytes": 32, "maxPatchAttempts": 3},
         "mandatorySyscallHex": run.SYSCALL_HEX,
     }
     return b"INFO " + json.dumps(value, separators=(",", ":")).encode() + b"\n"
@@ -68,6 +68,19 @@ class CheckerTests(unittest.TestCase):
         with patch.object(run.socket, "create_connection", return_value=FakeConnection(b"INFO {}\n")):
             with self.assertRaises(Mumble):
                 run.check_info(CONTEXT)
+
+    def test_invalid_capability_is_rejected(self):
+        with patch.object(run.socket, "create_connection", return_value=FakeConnection(b"ERR auth: invalid KotH capability\n")):
+            run.check_invalid_capability(CONTEXT)
+
+    def test_read_only_commands_are_rejected_without_a_session(self):
+        responses = [
+            FakeConnection(b"ERR command; use HELP\n"),
+            FakeConnection(b"ERR command; use HELP\n"),
+            FakeConnection(b"ERR auth-required\n"),
+        ]
+        with patch.object(run.socket, "create_connection", side_effect=responses):
+            run.check_read_only_errors(CONTEXT)
 
 
 if __name__ == "__main__":

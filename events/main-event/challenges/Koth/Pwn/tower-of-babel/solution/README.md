@@ -7,10 +7,10 @@
 - Status: `draft`
 - Revision: `<pending user-authorized git inspection>`
 - Challenge type: `KingOfTheHill`, managed Leaderboard evidence
-- Delivery: `hybrid` (shared TCP target plus `dist/README.txt`)
-- Artifact or image: `sha256:9d736726b75e0a441a061e3aa88641c243e897ea61fa9a848427bc344831cae5` (local release-candidate image)
-- Handout SHA-256: `86aae28a855d061e9fd48b2aa85feadb7bb3e9ffbe529830346bf2c831e1f54e`
-- Tested at: `2026-09-03T10:27:15Z` (UTC)
+- Delivery: `hybrid` (shared TCP target plus `dist/tower-of-babel.zip`)
+- Artifact or image: `sha256:1b5a024cd1b2b8bbf1fdc67f491ab3174f4abe30f1e91f9df0273d8a269e82d2` (local slim UI-test image)
+- Handout SHA-256: `50a9013fdf7a91b58840151c2a295d1dac5a17755a7b5bcc3dbb7c45f558d7dc`
+- Tested at: `2026-09-03T17:50:47Z` (UTC)
 - Tested by: `Codex`
 - Command: `python3 solution/solve.py --host <target> --port 1094 --token <current-capability>`
 - Result: `exit 0; mastery depth=4, payloadBytes=<bounded>, randomized wave (local capability; no live flag)`
@@ -26,22 +26,25 @@ window whose candidate is canary-tested before it becomes the ward.
 
 ## Player inputs
 
-- Description: the manifest description and the exact `dist/README.txt` handout,
-  including the player-owned cross-binutils setup note.
+- Description: the manifest description and the exact `dist/tower-of-babel.zip`
+  handout, including the player-owned terminal lobby and short PRTS briefing.
 - Target: the issued TCP host and port `1094`.
 - Credentials or rules: the current `koth_…` capability; `PING`, `INFO`, `RELAY`,
   `AUTH`, `PATCH`, `STATUS`, and `QUIT` are the public commands.
-- Files: `dist/README.txt`.
+- Files: `dist/tower-of-babel.zip` (contains `README.txt` and `client.py`).
 - Not supplied: service source, runner implementation, reporter credential,
   generated secrets, and organizer APIs.
 
 ## Walkthrough
 
-### 1. Read the public wave contract
+### 1. Open the player lobby and read the public wave contract
 
+- Action: extract `tower-of-babel.zip`, run `python3 client.py --host TARGET --port 1094`,
+  and choose `Wave briefing` (or use the protocol console's `INFO`).
 - Observation: `INFO` returns four ordered stages, each architecture, secret
   path, executor path, syscall numbers, payload limit, `instanceId`, and the
-  active ward's status/revision/fallback fields.
+  active ward's status/revision/fallback fields. It also publishes the bounded
+  2,000-team wave roster limit.
 - Hypothesis: each stage must use its own syscall ABI and embed the next
   executor path and payload.
 - Action: assemble position-independent stage shellcode from the visible paths,
@@ -65,7 +68,8 @@ window whose candidate is canary-tested before it becomes the ward.
 - Action: send `AUTH <secret1><secret2><secret3><secret4>`. If this is the
   first verified full relay in the wave, submit up to three JSON `PATCH`
   candidates containing 2–8-byte patterns that do not contain a mandatory
-  syscall opcode.
+  syscall opcode. The three-attempt budget is shared by the wave and survives
+  reconnects.
 - Result: `RELAY_ACCEPTED` identifies the first-solver patch window. A
   `PATCH_ACCEPTED` response means the server replay-canary passed; a
   `PATCH_REJECTED` response means the previous known-good ward remains active
@@ -85,14 +89,16 @@ runner has a code-size and instruction limit and never executes player bytes
 natively.
 
 The coordinator retains only SHA-256 capability hashes and the best bounded
-attempt per team and wave. The first authenticated full relay in a wave is
-recorded separately as the only patch owner. A submitted candidate is replayed
-against that known-good payload under the candidate ward; failure never replaces
-the active ward. Its in-process reporter filters those hashes through
-the active rsctf context and submits one `babel-mastery` objective with
-`activity = 1/1`; it signs the exact native evidence body with the lifecycle
-reporter credential. Checkers use only unauthenticated `PING`, `INFO`, and
-rejection paths, so they never create a session or touch scoring state.
+attempt per team and wave, while retaining one zero-progress roster row for
+every authenticated team that joined the wave. The first authenticated full
+relay in a wave is recorded separately as the only patch owner. A submitted
+candidate is replayed against that known-good payload under the candidate ward;
+failure never replaces the active ward. Its in-process reporter filters those
+hashes through the active rsctf context and submits one `babel-mastery`
+objective per active team with `activity = 1/1`; it signs the exact native
+evidence body with the lifecycle reporter credential. Checkers use only
+unauthenticated `PING`, `INFO`, and rejection paths, so they never create a
+session or touch scoring state.
 
 ## Solver
 
@@ -110,15 +116,11 @@ reference solve remains a clean initial-wave path.
 
 ## Evidence
 
-No screenshot is useful for this text TCP protocol; text output is the retained
-evidence format for this candidate.
+Evidence is text-only: the terminal lobby and protocol output are the player-visible state.
 
-Current retained text evidence includes a healthy candidate image, `checker/run.py`
-exit 0, a mixed-architecture `depth=4` solver run, a two-team depth/size ranking
-rehearsal, first-solver patch ownership, canary rejection with visible fallback,
-canary-safe activation, and restart-to-new-instance behavior. The procedural blind
-rooms contain one contaminated run and two valid partial/stuck runs; none supports a
-full difficulty claim yet.
+Retained checks cover ZIP contents and hash, story/UI smoke, image health, checker exit 0,
+mixed-architecture `depth=4`, ranking, patch ownership, canary fallback/activation,
+reconnect limits, strict syscall validation, and restart reset.
 
 ## Notes
 
@@ -130,8 +132,7 @@ full difficulty claim yet.
   targets, mandatory-syscall ward patterns, unauthenticated relay/patch, exact
   score ties, stale capabilities, and child environments containing any
   `RSCTF_KOTH_*` value.
-- Known limitations: release status remains `draft` until the matching rsctf
-  image, hidden managed-Leaderboard lifecycle, fresh blind playtest, and exact
-  revision identity are recorded. Direct official scans of both event roots pass;
-  a whole-tree scan is currently blocked by the preserved user-owned
-  `tower-of-babel/challenge.yml` outside the two event roots.
+- Known limitations: release status remains `draft` until the matching rsctf image,
+  hidden managed-Leaderboard lifecycle, fresh blind playtest, and exact revision identity
+  are recorded. Event-root scans pass; the whole-tree scan still includes the legacy
+  root-level `tower-of-babel-jeop/challenge.yml`.

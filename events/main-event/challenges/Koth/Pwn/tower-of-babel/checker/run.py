@@ -109,7 +109,7 @@ def check_info(context: KothContext) -> None:
             raise Mumble("INFO ward pattern was invalid")
         mandatory = bytes.fromhex(SYSCALL_HEX[pattern["arch"]])
         raw = bytes.fromhex(pattern["hex"])
-        if any(mandatory[offset : offset + len(raw)] == raw for offset in range(len(mandatory) - len(raw) + 1)):
+        if raw in mandatory or mandatory in raw:
             raise Mumble("INFO ward blocks a mandatory syscall")
     ward_state = value["ward"]
     if not isinstance(ward_state, dict) or set(ward_state) != {
@@ -134,7 +134,7 @@ def check_info(context: KothContext) -> None:
     if ward_state["status"] == "rejected" and ward_state["fallback"] != "previous-known-good":
         raise Mumble("INFO rejected ward did not expose fallback")
     limits = value["limits"]
-    if limits != {"maxPayloadBytes": 32768, "maxAttemptsPerTeam": 12, "maxPatchPatterns": 8, "maxPatchBytes": 32, "maxPatchAttempts": 3}:
+    if limits != {"maxPayloadBytes": 32768, "maxAttemptsPerTeam": 12, "maxTeamsPerWave": 2000, "maxPatchPatterns": 8, "maxPatchBytes": 32, "maxPatchAttempts": 3}:
         raise Mumble("INFO limits changed")
     if value["mandatorySyscallHex"] != SYSCALL_HEX:
         raise Mumble("INFO syscall contract changed")
@@ -146,6 +146,14 @@ def check_read_only_errors(context: KothContext) -> None:
         raise Mumble("unauthenticated relay was not rejected")
     if _request(context, b"PATCH {\"patterns\":[]}") != b"ERR command; use HELP":
         raise Mumble("unauthenticated patch was not rejected")
+    if _request(context, b"STATUS") != b"ERR auth-required":
+        raise Mumble("unauthenticated status was not rejected")
+
+
+@checker
+def check_invalid_capability(context: KothContext) -> None:
+    if _request(context, b"HELLO koth_bad") != b"ERR auth: invalid KotH capability":
+        raise Mumble("invalid KotH capability was not rejected at the protocol boundary")
 
 
 if __name__ == "__main__":

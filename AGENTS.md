@@ -77,9 +77,9 @@ both KotH checkers receive no flag and never inspect or alter their claim source
   ZIP; the rsctf target owns identity, match validation, and scoring evidence, while the
   separately deployed `gateway/` only adapts HTTPS and UDP transport.
 - `Tower of Babel` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
-  TCP handout; the target owns authenticated four-architecture relay validation, native
-  `babel-mastery` evidence, and first-solver-owned bounded ward patches with replay-canary
-  fallback. It has no gateway.
+  TCP/TUI ZIP handout; the target owns authenticated four-architecture relay validation, one bounded
+  `babel-mastery` row per authenticated team in each finalized wave, and first-solver-owned
+  bounded ward patches with replay-canary fallback. It has no gateway.
 
 Both challenge checkers are bounded and read-only. They receive no flag and never inspect or
 alter the KotH claim source.

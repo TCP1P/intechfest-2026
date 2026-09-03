@@ -20,6 +20,8 @@ class PatchTests(unittest.TestCase):
             main.validate_patch({"patterns": [{"arch": "amd64", "hex": "0f05"}]})
         with self.assertRaises(ValueError):
             main.validate_patch({"patterns": [{"arch": "aarch64", "hex": "00d4"}]})
+        with self.assertRaises(ValueError):
+            main.validate_patch({"patterns": [{"arch": "amd64", "hex": "0f0590"}]})
 
 
 class ScoringTests(unittest.TestCase):
@@ -73,6 +75,39 @@ class ScoringTests(unittest.TestCase):
         self.assertIsNone(wave.crown_hash)
         self.assertEqual(state._active_patch, (("amd64", "4889"),))
 
+    def test_finalized_wave_keeps_a_zero_result_row_for_an_active_team(self):
+        state = main.ArenaState()
+        start = main.aligned_wave_start(main.now_ms())
+        wave = main._new_wave(start, ())
+        state._waves[start] = wave
+        state._latest_start = start
+        state.register_team(wave, "a" * 64)
+        state._finalize_locked(wave, 100000)
+        snapshot = state.snapshot_for_reporter()
+        self.assertEqual(snapshot[0]["teams"], [{
+            "tokenHash": "a" * 64,
+            "earned": 0,
+            "possible": 5 * (main.MAX_PAYLOAD_BYTES + 1),
+        }])
+
+    def test_wave_roster_limit_is_enforced_before_a_new_session(self):
+        state = main.ArenaState()
+        wave = main._new_wave(main.aligned_wave_start(main.now_ms()), ())
+        wave.active_teams.update(f"{index:064x}" for index in range(main.MAX_TEAMS_PER_WAVE))
+        self.assertFalse(state.register_team(wave, "f" * 64))
+
+    def test_patch_attempt_budget_is_scoped_to_the_wave(self):
+        state = main.ArenaState()
+        wave = main._new_wave(main.aligned_wave_start(main.now_ms()), ())
+        state._waves[wave.start_ms] = wave
+        state._latest_start = wave.start_ms
+        self.assertTrue(state.register_first_solver(wave, "a" * 64, "aa", main.now_ms()))
+        self.assertEqual(
+            [state.consume_patch_attempt(wave, "a" * 64) for _ in range(main.MAX_PATCH_ATTEMPTS)],
+            [True, True, True],
+        )
+        self.assertFalse(state.consume_patch_attempt(wave, "a" * 64))
+
 
 class BoundaryTests(unittest.TestCase):
     def test_reporter_values_are_filtered_from_runner_environment(self):
@@ -92,6 +127,13 @@ class BoundaryTests(unittest.TestCase):
             main.protocol_session(input_stream, output_stream, state)
         self.assertIn(b'"depth":4', output_stream.getvalue())
         self.assertIn(b"ERR no-complete-relay", output_stream.getvalue())
+
+    def test_protocol_rejects_status_without_authentication(self):
+        state = main.ArenaState()
+        input_stream = io.BytesIO(b"STATUS\nQUIT\n")
+        output_stream = io.BytesIO()
+        main.protocol_session(input_stream, output_stream, state)
+        self.assertIn(b"ERR auth-required", output_stream.getvalue())
 
     def test_first_solver_bad_patch_is_rejected_with_visible_fallback(self):
         state = main.ArenaState()

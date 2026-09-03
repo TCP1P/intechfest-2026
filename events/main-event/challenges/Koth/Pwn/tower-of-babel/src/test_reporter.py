@@ -60,6 +60,22 @@ class ReporterTests(unittest.TestCase):
         self.assertEqual(len(value["waves"]), 1)
         self.assertFalse(any(team["isCrown"] for team in value["waves"][0]["teams"]))
 
+    def test_zero_result_active_team_is_retained_without_a_crown(self):
+        context = self.context()
+        body = reporter._snapshot_body(
+            context,
+            [{
+                "waveStart": 60000,
+                "endedAtUnixMs": 120000,
+                "teams": [{"tokenHash": "a" * 64, "earned": 0, "possible": 163845}],
+            }],
+            130000,
+        )
+        team = json.loads(body)["waves"][0]["teams"][0]
+        self.assertEqual(team["activity"], {"earned": 1, "possible": 1})
+        self.assertEqual(team["objectives"], [{"earned": 0, "possible": 163845}])
+        self.assertFalse(team["isCrown"])
+
     def test_submit_uses_exact_hmac_message_and_ack_counts(self):
         config = reporter.Config(7, 9, "koth_target_test", "https://rctf.invalid/context", "https://rctf.invalid/observe")
         context = self.context()

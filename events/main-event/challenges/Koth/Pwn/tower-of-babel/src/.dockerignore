@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!main.py
+!reporter.py
+!runner.cpp
+!start.sh

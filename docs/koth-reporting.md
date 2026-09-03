@@ -26,11 +26,13 @@ Four packages use this model:
   is a stateless TCP/UDP protocol adapter and has no scoring credential.
 
 - [Tower of Babel](../events/main-event/challenges/Koth/Pwn/tower-of-babel/) owns a direct
-  TCP coordinator and reports one `babel-mastery` ratio per finalized 60-second wave from
-  its in-memory verified relay state. The first authenticated full solver owns a bounded
-  patch window; the coordinator replay-canary-tests candidates and exposes rejection/fallback
-  state before changing the active ward. The ward is gameplay state, not a second scoring
-  source, and no transport gateway is required.
+  TCP coordinator and a player-safe terminal-lobby handout, then reports one `babel-mastery` ratio per finalized 60-second wave from
+  its in-memory verified relay state. Every authenticated team present in a wave gets one
+  bounded native row, including a zero-progress row when it has not completed a relay. The
+  first authenticated full solver owns a bounded three-attempt-per-wave patch window that
+  survives reconnects; the coordinator replay-canary-tests candidates and exposes
+  rejection/fallback state before changing the active ward. The ward is gameplay state, not
+  a second scoring source, and no transport gateway is required.
 
 `observation` remains part of the rsctf endpoint and environment-variable names, but it
 does not describe a repository component. Do not add an `observer/` directory, observer

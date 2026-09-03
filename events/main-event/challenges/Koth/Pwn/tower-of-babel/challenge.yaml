@@ -2,27 +2,23 @@
 name: "Tower of Babel"
 author: "m3rr"
 description: |
-  Babel is no longer a one-shot flag gate. Join the current hill with your
-  rsctf KotH capability, inspect the public wave contract, and relay one
-  shellcode stage through all four guest architectures: x86-64, AArch64,
-  RISC-V 64, and big-endian MIPS64. The server gives every wave a fresh
-  build order and opaque stage paths; a successful relay must read each
-  stage's secret and pass the next stage as hex through `execve`.
+  Join the current hill with your rsctf KotH capability. Open the supplied
+  terminal lobby or use TCP directly to inspect a randomized four-stage relay:
+  x86-64, AArch64, RISC-V 64, and big-endian MIPS64. Each stage reads its
+  secret and passes the next stage as hex through `execve`.
 
-  Each 60-second wave keeps your best verified relay. `babel-mastery` rewards
-  stage depth first, then a smaller outer payload. The first team to complete
-  and authenticate a four-stage relay owns a three-attempt patch window. Its
-  byte-pattern ward is replay-canary-tested before activation; a rejected
-  candidate leaves the previous known-good ward in place and is shown as a
-  visible fallback in `INFO`. An accepted ward protects the rest of the
-  current wave and carries forward. The target reports native evidence to
-  rsctf; there is no static flag or marker file to edit. A target restart
-  exposes a new instance identity so clients can refresh the contract.
+  PRTS archive, Year 1094, Kazdel: Doctor, Kal'tsit, Theresa, and Civilight
+  Eterna guard Babel's four paths. Their order changes every wave.
+
+  Each 60-second wave ranks stage depth, then outer payload size. The first
+  team to authenticate all four stages may submit three patches per wave.
+  Each patch is replay-tested: rejection keeps the previous ward, while
+  acceptance applies to later attempts and future waves.
 type: KingOfTheHill
 category: Pwn
 disableBloodBonus: true
 
-provide: dist
+provide: dist/tower-of-babel.zip
 
 container:
   memoryLimit: 512
