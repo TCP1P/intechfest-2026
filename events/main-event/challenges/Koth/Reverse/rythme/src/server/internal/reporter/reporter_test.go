@@ -46,6 +46,7 @@ func TestReporterConsumesRawRSCTFSuccessBodies(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(acceptedObservation{
 				Accepted: true, CycleNumber: 4, ResetAttempt: 2, RoundNumber: 7,
 				SubmittedWaves: 0, SubmittedTeams: 0, RecognizedTeams: 0,
+				AcceptedAt: 1_500,
 			})
 		default:
 			http.NotFound(w, request)

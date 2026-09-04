@@ -85,13 +85,14 @@ type reportingContext struct {
 }
 
 type acceptedObservation struct {
-	Accepted        bool `json:"accepted"`
-	CycleNumber     int  `json:"cycleNumber"`
-	ResetAttempt    int  `json:"resetAttempt"`
-	RoundNumber     int  `json:"roundNumber"`
-	SubmittedWaves  int  `json:"submittedWaves"`
-	SubmittedTeams  int  `json:"submittedTeams"`
-	RecognizedTeams int  `json:"recognizedTeams"`
+	Accepted        bool  `json:"accepted"`
+	CycleNumber     int   `json:"cycleNumber"`
+	ResetAttempt    int   `json:"resetAttempt"`
+	RoundNumber     int   `json:"roundNumber"`
+	SubmittedWaves  int   `json:"submittedWaves"`
+	SubmittedTeams  int   `json:"submittedTeams"`
+	RecognizedTeams int   `json:"recognizedTeams"`
+	AcceptedAt      int64 `json:"acceptedAt"`
 }
 
 type arenaRetryError struct {
@@ -420,7 +421,7 @@ func validReportingContext(value reportingContext) bool {
 }
 
 func (r *managedReporter) run(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		if err := r.report(ctx); err != nil && !errors.Is(err, errManagedRoundGap) {

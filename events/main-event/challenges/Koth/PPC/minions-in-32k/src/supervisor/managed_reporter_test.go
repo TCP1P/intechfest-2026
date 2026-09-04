@@ -66,6 +66,7 @@ func TestManagedReporterConsumesRawRSCTFResponsesAndSignsSnapshot(t *testing.T) 
 				request.Header.Get("X-RSCTF-Timestamp") != ""
 			_ = json.NewEncoder(w).Encode(acceptedObservation{
 				Accepted: true, CycleNumber: 3, ResetAttempt: 2, RoundNumber: 9,
+				AcceptedAt: now.UnixMilli(),
 			})
 		default:
 			http.NotFound(w, request)

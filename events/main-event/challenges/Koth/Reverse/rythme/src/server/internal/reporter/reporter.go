@@ -28,7 +28,7 @@ const (
 	maxTeamWaveRows = 2_000
 	maxScore        = int64(1_000_000_000_000)
 	maxResponseBody = 256 << 10
-	pollInterval    = time.Second
+	pollInterval    = 5 * time.Second
 )
 
 var objectiveIDs = []string{"official-score"}
@@ -96,13 +96,14 @@ type observation struct {
 }
 
 type acceptedObservation struct {
-	Accepted        bool `json:"accepted"`
-	CycleNumber     int  `json:"cycleNumber"`
-	ResetAttempt    int  `json:"resetAttempt"`
-	RoundNumber     int  `json:"roundNumber"`
-	SubmittedWaves  int  `json:"submittedWaves"`
-	SubmittedTeams  int  `json:"submittedTeams"`
-	RecognizedTeams int  `json:"recognizedTeams"`
+	Accepted        bool  `json:"accepted"`
+	CycleNumber     int   `json:"cycleNumber"`
+	ResetAttempt    int   `json:"resetAttempt"`
+	RoundNumber     int   `json:"roundNumber"`
+	SubmittedWaves  int   `json:"submittedWaves"`
+	SubmittedTeams  int   `json:"submittedTeams"`
+	RecognizedTeams int   `json:"recognizedTeams"`
+	AcceptedAt      int64 `json:"acceptedAt"`
 }
 
 func New(cfg Config, game *arena.Arena) (*Reporter, error) {
