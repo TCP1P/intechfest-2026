@@ -26,14 +26,14 @@ Its current draft service identity is:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `bzImage` | `0262643f67d2939e43261a7577a15fd2a0d04f191979cc851ec81d46432e9a4a` |
-| `initramfs.cpio.gz` | `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89` |
+| `bzImage` | `670a9497f3047a40fea9806b537fd420723b91bf622ab29de227e6491fe1084e` |
+| `initramfs.cpio.gz` | `a71ddd1a156c25c755a7d3d99cdff59f0575e11bff3e96bb31626268b288ff76` |
 | `yani_netfilter.c` snippet | `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14` |
-| `vmlinux.unstripped` | `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db` |
-| Docker image index | `sha256:57b2a9d0f36694a12dc4d4411880d489cb301be17ff77ad6e669de5440e6efc6` |
-| Docker image config | `sha256:e2404332b6e855defd75ae94dcc2a83f20d18917e10fd224b60e26f95ef47a1e` |
+| `vmlinux.unstripped` | `807c7eb7efcc7d3d420091e6ae1af469411ae257429e8d1aee7abad860823492` |
+| Docker image index | `sha256:b0e33011573518f54c8bf3a68e97709516c7329e5c1153f5ab439c845c909ee6` |
+| Docker image config | `sha256:d634bd610eadc3f3e982226ed19d5afd758e29c2a9c11188520d2206a8d9a73d` |
 
-The unstripped ELF is stored in the Docker context as three sub-50 MB parts. The
+The unstripped ELF is stored in the Docker context as four sub-50 MB parts. The
 Dockerfile joins them into the read-only `/opt/yani/vmlinux.unstripped` path.
 
 ## Runtime topology

@@ -6,18 +6,19 @@
 - Type: self-hosted/BYOC `AttackDefense`, Pwn
 - Kernel: Linux 7.2.3, x86-64, GCC 12 container, `make -j8 bzImage`
 - Source tarball SHA-256: `8ba259e8e7b13ec6ef0941c8a39ad90b24bd4a4d6c0010ba6bafb794550ecd03`
-- `bzImage` SHA-256: `0262643f67d2939e43261a7577a15fd2a0d04f191979cc851ec81d46432e9a4a`
-- `initramfs.cpio.gz` SHA-256: `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89`
+- `bzImage` SHA-256: `670a9497f3047a40fea9806b537fd420723b91bf622ab29de227e6491fe1084e`
+- `initramfs.cpio.gz` SHA-256: `a71ddd1a156c25c755a7d3d99cdff59f0575e11bff3e96bb31626268b288ff76`
 - `yani_netfilter.c` snippet SHA-256: `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14`
-- `vmlinux.unstripped` SHA-256: `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db`
+- `vmlinux.unstripped` SHA-256: `807c7eb7efcc7d3d420091e6ae1af469411ae257429e8d1aee7abad860823492`
 - The Docker context stores this ELF as `vmlinux.unstripped.part-00`,
-  `vmlinux.unstripped.part-01`, and `vmlinux.unstripped.part-02`. Docker joins
+  `vmlinux.unstripped.part-01`, `vmlinux.unstripped.part-02`, and
+  `vmlinux.unstripped.part-03`. Docker joins
   them into `/opt/yani/vmlinux.unstripped`.
-- Docker image index: `sha256:57b2a9d0f36694a12dc4d4411880d489cb301be17ff77ad6e669de5440e6efc6`
-- Docker image config: `sha256:e2404332b6e855defd75ae94dcc2a83f20d18917e10fd224b60e26f95ef47a1e`
+- Docker image index: `sha256:b0e33011573518f54c8bf3a68e97709516c7329e5c1153f5ab439c845c909ee6`
+- Docker image config: `sha256:d634bd610eadc3f3e982226ed19d5afd758e29c2a9c11188520d2206a8d9a73d`
 - Player transport: TCP port `31337`. UDP accepts one request per datagram.
 - The relay, netfilter hook, and `/proc/yani` are built into `bzImage`. The
-  initramfs contains BusyBox and boot files only. It has no challenge daemon or
+  initramfs contains BusyBox and boot files. It has no challenge daemon or
   interactive serial shell. PID 1 keeps the guest alive with `sleep 5`.
 - The image includes `/opt/yani/yani_netfilter.c`, an incomplete context snippet
   that shows only `EAT`, `PUKE`, and `SMOKING`. The full implementation stays in

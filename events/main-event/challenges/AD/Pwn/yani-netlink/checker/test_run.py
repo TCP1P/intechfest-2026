@@ -47,20 +47,20 @@ class CheckerHelpersTest(unittest.TestCase):
             "/init",
         })
         self.assertEqual(len(MEMORY_IDENTITY), 38)
-        self.assertEqual(len(INIT_SHA256), 64)
+        self.assertEqual(INIT_SHA256, "8708a6dd6d7070d8dbd197b4d5848c1870fbaa938d36227d8cee1a215e0787e9")
 
     def test_kernel_code_whitelist_is_relocatable_and_bounded(self):
         self.assertEqual(KERNEL_LINK_TEXT, 0xFFFFFFFF81000000)
-        self.assertEqual(KERNEL_LINK_MEMORY_IDENTITY, 0xFFFFFFFF82574E60)
-        self.assertEqual(KERNEL_LINK_PREPARE, 0xFFFFFFFF812CAB40)
-        self.assertEqual(KERNEL_LINK_COMMIT, 0xFFFFFFFF812CA890)
+        self.assertEqual(KERNEL_LINK_MEMORY_IDENTITY, 0xFFFFFFFF825755E0)
+        self.assertEqual(KERNEL_LINK_PREPARE, 0xFFFFFFFF812CDEB0)
+        self.assertEqual(KERNEL_LINK_COMMIT, 0xFFFFFFFF812CDC00)
         self.assertEqual(KERNEL_LINK_INIT_TASK, 0xFFFFFFFF82C0CA00)
         self.assertEqual(
             IMMUTABLE_CODE_CHECKS,
             (
                 (0xFFFFFFFF81000000, 128, "d97893ed7a4e12bf79dd0ac7ef9bdc76b3526e2c2bcbbd3a2d6d890d3bdd480c"),
-                (0xFFFFFFFF8205A730, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
-                (0xFFFFFFFF8205A900, 128, "e0694ee0a917f82f402d4708207644462b9eda4fa7702f045f8ef88fa7d4f7cf"),
+                (0xFFFFFFFF82063BD0, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
+                (0xFFFFFFFF82063DA0, 128, "1f6e87f055ae36a5756e0c8c6ff8105febd63a4a87beb752a5c04777dbab1def"),
             ),
         )
         for _, length, digest in IMMUTABLE_CODE_CHECKS:
