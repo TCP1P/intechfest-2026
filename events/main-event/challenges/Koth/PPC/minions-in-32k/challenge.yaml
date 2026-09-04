@@ -1,6 +1,6 @@
 # Minions in 32K is a shared, managed-reporting Leaderboard KotH arena.
 name: "Minions in 32K"
-author: "Project Sekai CTF contributors and dimasma0305"
+author: "dimasma0305"
 description: |
   Fight for control of Gru's Lab in an objective-aware arena rendered at
   exactly 32,768 internal pixels. Download the client, connect through the
