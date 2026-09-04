@@ -95,15 +95,18 @@ func TestBundledRealHardPool(t *testing.T) {
 	}
 
 	emptyCache := t.TempDir()
-	if err := validateBeatmapCache(pool, emptyCache); err != nil {
+	if err := validateBeatmapCache(pool, emptyCache, false); err != nil {
 		t.Fatalf("empty cache should use pinned remote fallback: %v", err)
+	}
+	if err := validateBeatmapCache(pool, emptyCache, true); err == nil {
+		t.Fatal("offline mode accepted an incomplete beatmap cache")
 	}
 
 	first := pool.Songs[0]
 	if err := os.WriteFile(filepath.Join(emptyCache, first.ID+".osz"), []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateBeatmapCache(pool, emptyCache); err == nil {
+	if err := validateBeatmapCache(pool, emptyCache, false); err == nil {
 		t.Fatal("tampered cached archive was accepted")
 	}
 }

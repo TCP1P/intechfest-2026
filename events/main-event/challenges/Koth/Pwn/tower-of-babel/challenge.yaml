@@ -27,5 +27,5 @@ container:
   exposePort: 1094
 
 ad:
-  # The managed target needs the private rsctf callback and normal event egress.
-  allowEgress: true
+  # The managed target needs only rsctf's private reporting callback.
+  allowEgress: false

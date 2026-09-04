@@ -19,6 +19,6 @@ container:
   exposePort: 8080
 
 ad:
-  # Managed challenge targets may reach the internet as well as rsctf's private
-  # lifecycle-bound reporting callback.
-  allowEgress: true
+  # The player gateway and rsctf's lifecycle-bound callback are private paths;
+  # this target does not need unrestricted internet access at runtime.
+  allowEgress: false

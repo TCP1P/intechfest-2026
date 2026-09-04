@@ -19,6 +19,6 @@ container:
   exposePort: 1337
 
 ad:
-  # Managed challenge targets may reach the internet as well as rsctf's private
-  # lifecycle-bound reporting callback.
-  allowEgress: true
+  # Beatmaps are pinned into the image; only rsctf's private reporting callback
+  # is needed at runtime.
+  allowEgress: false

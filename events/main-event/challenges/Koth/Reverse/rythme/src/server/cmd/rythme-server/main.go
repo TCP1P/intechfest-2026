@@ -46,7 +46,8 @@ func main() {
 		logger.Fatalf("load pool: %v", err)
 	}
 	beatmapDir := env("RYTHME_BEATMAP_DIR", "../shared/beatmap-cache")
-	if err := validateBeatmapCache(pool, beatmapDir); err != nil {
+	beatmapProxy := boolEnv("RYTHME_BEATMAP_PROXY", true)
+	if err := validateBeatmapCache(pool, beatmapDir, !beatmapProxy); err != nil {
 		logger.Fatalf("validate beatmap cache: %v", err)
 	}
 
@@ -117,7 +118,7 @@ func main() {
 			Arena:         game,
 			ServerBuild:   serverBuild,
 			BeatmapDir:    beatmapDir,
-			BeatmapProxy:  boolEnv("RYTHME_BEATMAP_PROXY", true),
+			BeatmapProxy:  beatmapProxy,
 			LocalAuth:     boolEnv("RYTHME_LOCAL_AUTH", false),
 			RCTFAuth:      rctfAuthenticator,
 			IdentityKey:   []byte(os.Getenv("RYTHME_IDENTITY_BRIDGE_KEY")),
@@ -193,7 +194,7 @@ func coordinatorHealthcheck(url string) error {
 	return nil
 }
 
-func validateBeatmapCache(pool arena.Pool, beatmapDir string) error {
+func validateBeatmapCache(pool arena.Pool, beatmapDir string, requireComplete bool) error {
 	for _, song := range pool.Songs {
 		if song.ArchiveSHA256 == "" {
 			continue
@@ -214,6 +215,9 @@ func validateBeatmapCache(pool arena.Pool, beatmapDir string) error {
 		}
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
+				if requireComplete {
+					return fmt.Errorf("%s: beatmap archive is missing", song.ID)
+				}
 				continue
 			}
 			return fmt.Errorf("%s: %w", song.ID, err)

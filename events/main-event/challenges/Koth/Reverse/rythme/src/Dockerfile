@@ -7,6 +7,41 @@ ARG RYTHME_VERSION
 
 WORKDIR /build
 COPY shared/pool.json ./shared/pool.json
+RUN apk add --no-cache curl jq
+RUN --mount=type=cache,target=/var/cache/rythme-beatmaps,sharing=locked \
+    set -eu; \
+    mkdir -p /out/beatmaps /var/cache/rythme-beatmaps; \
+    jq -r '.songs[] | [.id, .beatmapset_id, .archive_sha256] | @tsv' /build/shared/pool.json | \
+    while IFS="$(printf '\t')" read -r song_id beatmapset_id expected_sha256; do \
+      case "$song_id" in ''|*[!A-Za-z0-9._-]*) exit 1 ;; esac; \
+      case "$beatmapset_id" in ''|*[!0-9]*) exit 1 ;; esac; \
+      test "${#expected_sha256}" -eq 64; \
+      case "$expected_sha256" in *[!0-9a-f]*) exit 1 ;; esac; \
+      destination="/out/beatmaps/${song_id}.osz"; \
+      cached="/var/cache/rythme-beatmaps/${song_id}.osz"; \
+      downloaded=0; \
+      if test -f "$cached" \
+        && printf '%s  %s\n' "$expected_sha256" "$cached" | sha256sum -c -; then \
+        downloaded=1; \
+      else \
+        for source in \
+          "https://api.nerinyan.moe/d/${beatmapset_id}" \
+          "https://beatconnect.io/b/${beatmapset_id}/" \
+          "https://catboy.best/d/${beatmapset_id}" \
+          "https://dl.sayobot.cn/beatmaps/download/full/${beatmapset_id}"; do \
+          if curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
+            --max-filesize 100663296 "$source" --output "$cached" \
+            && printf '%s  %s\n' "$expected_sha256" "$cached" | sha256sum -c -; then \
+            downloaded=1; \
+            break; \
+          fi; \
+        done; \
+      fi; \
+      test "$downloaded" -eq 1; \
+      cp "$cached" "$destination"; \
+    done; \
+    chown -R 65532:65532 /out/beatmaps
 COPY server/go.mod ./server/go.mod
 COPY server ./server
 WORKDIR /build/server
@@ -17,7 +52,6 @@ RUN go test ./... \
     -ldflags="-s -w -X main.serverBuild=${RYTHME_VERSION}" \
     -o /out/rythme-server \
     ./cmd/rythme-server
-RUN mkdir -p /out/beatmaps && chown 65532:65532 /out/beatmaps
 RUN mkdir -p /out/state && chown 65532:65532 /out/state
 
 FROM scratch
