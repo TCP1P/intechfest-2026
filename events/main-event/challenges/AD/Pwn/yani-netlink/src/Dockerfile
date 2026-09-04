@@ -15,9 +15,11 @@ COPY initramfs.cpio.gz /opt/yani/initramfs.cpio.gz
 COPY start.sh /opt/yani/start.sh
 COPY healthcheck.py /opt/yani/healthcheck.py
 COPY yani_netfilter.c /opt/yani/yani_netfilter.c
-COPY vmlinux.unstripped /opt/yani/vmlinux.unstripped
+COPY vmlinux.unstripped.part-* /tmp/yani-vmlinux/
 RUN chmod 0755 /opt/yani/start.sh /opt/yani/healthcheck.py \
-    && chmod 0444 /opt/yani/yani_netfilter.c /opt/yani/vmlinux.unstripped
+    && cat /tmp/yani-vmlinux/vmlinux.unstripped.part-* > /opt/yani/vmlinux.unstripped \
+    && chmod 0444 /opt/yani/yani_netfilter.c /opt/yani/vmlinux.unstripped \
+    && rm -rf /tmp/yani-vmlinux
 
 EXPOSE 31337/tcp
 EXPOSE 31337/udp

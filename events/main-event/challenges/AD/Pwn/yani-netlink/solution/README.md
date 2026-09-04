@@ -10,8 +10,11 @@
 - `initramfs.cpio.gz` SHA-256: `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89`
 - `yani_netfilter.c` snippet SHA-256: `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14`
 - `vmlinux.unstripped` SHA-256: `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db`
-- Docker image index: `sha256:bb0700192797c342b5beae86730eb0cf68fa1dd55dcec6232682102e7980d790`
-- Docker image config: `sha256:859b7b03a3bbdce492b72a2f8fa5b24c42082fb976a961f00ac02f17e83194d5`
+- The Docker context stores this ELF as `vmlinux.unstripped.part-00`,
+  `vmlinux.unstripped.part-01`, and `vmlinux.unstripped.part-02`. Docker joins
+  them into `/opt/yani/vmlinux.unstripped`.
+- Docker image index: `sha256:3857f9c0cedadadc5ceca4a822f24e0adb8927300823406aeaafee533c492208`
+- Docker image config: `sha256:c6e4c5fcc83f4e7c037d6ad1fec32ce59971a177626ebdbc7cb01af5345b70d9`
 - Player transport: TCP port `31337`. UDP accepts one request per datagram.
 - The relay, netfilter hook, and `/proc/yani` are built into `bzImage`. The
   initramfs contains BusyBox and boot files only. It has no challenge daemon or

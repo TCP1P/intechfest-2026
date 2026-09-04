@@ -30,8 +30,11 @@ Its current draft service identity is:
 | `initramfs.cpio.gz` | `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89` |
 | `yani_netfilter.c` snippet | `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14` |
 | `vmlinux.unstripped` | `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db` |
-| Docker image index | `sha256:bb0700192797c342b5beae86730eb0cf68fa1dd55dcec6232682102e7980d790` |
-| Docker image config | `sha256:859b7b03a3bbdce492b72a2f8fa5b24c42082fb976a961f00ac02f17e83194d5` |
+| Docker image index | `sha256:3857f9c0cedadadc5ceca4a822f24e0adb8927300823406aeaafee533c492208` |
+| Docker image config | `sha256:c6e4c5fcc83f4e7c037d6ad1fec32ce59971a177626ebdbc7cb01af5345b70d9` |
+
+The unstripped ELF is stored in the Docker context as three sub-50 MB parts. The
+Dockerfile joins them into the read-only `/opt/yani/vmlinux.unstripped` path.
 
 ## Runtime topology
 
