@@ -181,8 +181,34 @@ func positiveEnvironmentInteger(name string) (int, error) {
 }
 
 func validRemote(value string) bool {
-	address, err := net.ResolveUDPAddr("udp", value)
-	return err == nil && address.Port > 0
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
+	if err != nil || !validRemoteHost(host) {
+		return false
+	}
+	port, err := strconv.Atoi(portText)
+	return err == nil && port > 0 && port <= 65535
+}
+
+func validRemoteHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if !(character >= 'a' && character <= 'z') &&
+				!(character >= 'A' && character <= 'Z') &&
+				!(character >= '0' && character <= '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func newManagedReporter(cfg managedReporterConfig, reportToken string, game *arena) *managedReporter {
