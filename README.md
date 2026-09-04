@@ -9,7 +9,7 @@ must not be treated as permission to make either event public or enable a challe
 | Event | Root | Current challenges |
 | --- | --- | ---: |
 | Warmup | `events/warmup/` | 3 |
-| Main event | `events/main-event/` | 3 |
+| Main event | `events/main-event/` | 4 |
 
 The warmup currently contains:
 
@@ -19,6 +19,7 @@ The warmup currently contains:
 
 The main event currently contains:
 
+- `Yani-netlink` — self-hosted/BYOC Attack & Defense in `Pwn`.
 - `Tower of Babel` — shared managed-reporting Leaderboard KotH in `Pwn`.
 - `Rythme` — shared managed-reporting Leaderboard KotH in `Reverse`.
 - `Minions in 32K` — shared managed-reporting Leaderboard KotH in `PPC`.
@@ -81,7 +82,8 @@ validator or container-discovery script.
   passes the release checklist, a fresh blind playtest, and hidden staging.
 - Keep `Draft Control` on the Boot2Root/Marker claim source. Enable Leaderboard for
   `Serpent Circuit`, `Tower of Babel`, `Rythme`, and `Minions in 32K`, and configure rsctf's private
-  managed-reporter origin. rsctf injects a lifecycle-bound secret into each managed target;
+  managed-reporter origin. `Yani-netlink` is self-hosted/BYOC A&D and has no managed reporter
+  or gateway. rsctf injects a lifecycle-bound secret into each managed target;
   it never belongs in Git, a manifest, Compose file, handout, or child gameplay process.
   Deploy `gateway/` only for a required transport adapter, never for scoring.
 - Before enabling the warmup hills, set the event's KotH epoch/cycle/cooldown/confirmation
@@ -89,7 +91,7 @@ validator or container-discovery script.
   settings from `.gzevent`; leaving rsctf's `12/3/1/2` defaults makes Draft Control's
   two-tick marker confirmation race the first cycle reset.
 
-The frozen main-event topology and immutable artifact identities are recorded in
+The current main-event topology and immutable artifact identities are recorded in
 [docs/production.md](docs/production.md). The hidden warmup remains an unfrozen staging
 candidate until its BYOC, Marker, and managed Leaderboard topology and exact image identities
 are recorded there.

@@ -8,12 +8,12 @@
 - Revision: `<pending user-authorized git inspection>`
 - Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: `hybrid` (shared TCP target plus `dist/tower-of-babel.zip`)
-- Artifact or image: `sha256:1b5a024cd1b2b8bbf1fdc67f491ab3174f4abe30f1e91f9df0273d8a269e82d2` (local slim UI-test image)
-- Handout SHA-256: `50a9013fdf7a91b58840151c2a295d1dac5a17755a7b5bcc3dbb7c45f558d7dc`
+- Artifact or image: `sha256:ebe2259d2436611218be1b4bf552a3ac6e3c671fa0fc213df5368432e7bd0b54` (local wording-test image)
+- Handout SHA-256: `1db153946ca7609c8568745b2f6ac2767bf2a3676c8c47705c2fb5ba53167cfa`
 - Tested at: `2026-09-03T17:50:47Z` (UTC)
 - Tested by: `Codex`
 - Command: `python3 solution/solve.py --host <target> --port 1094 --token <current-capability>`
-- Result: `exit 0; mastery depth=4, payloadBytes=<bounded>, randomized wave (local capability; no live flag)`
+- Result: `exit 0, mastery depth=4, payloadBytes=<bounded>, randomized wave (local capability, no live flag)`
 
 ## Summary
 
@@ -21,7 +21,7 @@ The player joins the current wave with an rsctf KotH capability and receives a
 randomized order of four guest architectures. A nested, position-independent
 shellcode relay reads one secret per stage and passes the next stage as hex to
 the next executor. The server scores the verified stage depth first and outer
-payload size second; the first authenticated full relay owns a bounded patch
+payload size second. The first authenticated full relay owns a bounded patch
 window whose candidate is canary-tested before it becomes the ward.
 
 ## Player inputs
@@ -29,8 +29,8 @@ window whose candidate is canary-tested before it becomes the ward.
 - Description: the manifest description and the exact `dist/tower-of-babel.zip`
   handout, including the player-owned terminal lobby and short PRTS briefing.
 - Target: the issued TCP host and port `1094`.
-- Credentials or rules: the current `koth_…` capability; `PING`, `INFO`, `RELAY`,
-  `AUTH`, `PATCH`, `STATUS`, and `QUIT` are the public commands.
+- Credentials or rules: the current `koth_…` capability. Public commands are
+  `PING`, `INFO`, `RELAY`, `AUTH`, `PATCH`, `STATUS`, and `QUIT`.
 - Files: `dist/tower-of-babel.zip` (contains `README.txt` and `client.py`).
 - Not supplied: service source, runner implementation, reporter credential,
   generated secrets, and organizer APIs.
@@ -71,7 +71,7 @@ window whose candidate is canary-tested before it becomes the ward.
   syscall opcode. The three-attempt budget is shared by the wave and survives
   reconnects.
 - Result: `RELAY_ACCEPTED` identifies the first-solver patch window. A
-  `PATCH_ACCEPTED` response means the server replay-canary passed; a
+  `PATCH_ACCEPTED` response means the server replay-canary passed. A
   `PATCH_REJECTED` response means the previous known-good ward remains active
   and `INFO` exposes the fallback status.
 - Capability gained: a native scoring row and, for the first solver, a safe
@@ -92,10 +92,10 @@ The coordinator retains only SHA-256 capability hashes and the best bounded
 attempt per team and wave, while retaining one zero-progress roster row for
 every authenticated team that joined the wave. The first authenticated full
 relay in a wave is recorded separately as the only patch owner. A submitted
-candidate is replayed against that known-good payload under the candidate ward;
-failure never replaces the active ward. Its in-process reporter filters those
+candidate is replayed against that known-good payload under the candidate ward.
+Failure never replaces the active ward. Its in-process reporter filters those
 hashes through the active rsctf context and submits one `babel-mastery`
-objective per active team with `activity = 1/1`; it signs the exact native
+objective per active team with `activity = 1/1`. It signs the exact native
 evidence body with the lifecycle reporter credential. Checkers use only
 unauthenticated `PING`, `INFO`, and rejection paths, so they never create a
 session or touch scoring state.
@@ -110,8 +110,8 @@ mastery depth=4 payloadBytes=<bounded> wave=babel-<epoch-ms>
 ```
 
 The solver uses `pwntools==4.15.0` plus the target architecture binutils for
-RISC-V, AArch64, and MIPS64 assembly. It deliberately does not submit a patch;
-the patch owner and canary/fallback behavior are exercised separately so the
+RISC-V, AArch64, and MIPS64 assembly. It deliberately does not submit a patch.
+The patch owner and canary/fallback behavior are exercised separately so the
 reference solve remains a clean initial-wave path.
 
 ## Evidence
@@ -124,8 +124,8 @@ reconnect limits, strict syscall validation, and restart reset.
 
 ## Notes
 
-- Cleanup or reset behavior: sessions and unfinalized attempts are in memory;
-  a target restart starts a new instance with a safe empty ward, and rsctf reset
+- Cleanup or reset behavior: sessions and unfinalized attempts are in memory. A
+  target restart starts a new instance with a safe empty ward, and rsctf reset
   rotates the reporter credential. Finalized native snapshots are bounded to the
   reporter context.
 - Important negative checks: malformed hex, oversized payloads, wrong executor
@@ -134,5 +134,5 @@ reconnect limits, strict syscall validation, and restart reset.
   `RSCTF_KOTH_*` value.
 - Known limitations: release status remains `draft` until the matching rsctf image,
   hidden managed-Leaderboard lifecycle, fresh blind playtest, and exact revision identity
-  are recorded. Event-root scans pass; the whole-tree scan still includes the legacy
+  are recorded. Event-root scans pass. The whole-tree scan still includes the legacy
   root-level `tower-of-babel-jeop/challenge.yml`.

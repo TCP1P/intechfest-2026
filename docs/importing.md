@@ -40,7 +40,7 @@ discovery script participates in either decision.
    repository, use a fine-grained token with read-only contents access unless the
    workflow explicitly requires push-back.
 4. Run **Scan now** and inspect the complete result. This repository should report two
-   events: a warmup with three challenge manifests and a main event with two.
+   events: a warmup with three challenge manifests and a main event with four.
 5. Open both imported games. Confirm each is hidden and every imported challenge remains
    disabled.
 6. Review every discovered service-image build, each deterministic generator

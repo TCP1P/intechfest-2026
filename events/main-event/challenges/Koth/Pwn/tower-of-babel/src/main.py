@@ -208,7 +208,7 @@ def _new_wave(
 
 
 class ArenaState:
-    """Own all shared wave state; raw team capabilities never enter this object."""
+    """Own all shared wave state. Raw team capabilities never enter this object."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -433,7 +433,7 @@ class ArenaState:
                     for team in sorted(wave.active_teams | wave.attempts.keys())
                 ]
                 waves.append({"waveStart": wave.start_ms, "endedAtUnixMs": wave.end_ms, "teams": teams})
-            # Keep a bounded history; rsctf's context window is authoritative.
+            # Keep a bounded history. rsctf's context window is authoritative.
             for start in sorted(self._waves)[:-128]:
                 del self._waves[start]
             return waves
@@ -664,7 +664,7 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
             attempt = Attempt(depth, len(argument) // 2)
             session.last_attempt = attempt
             session.last_payload = argument.lower()
-            # Count every bounded execution against the per-team budget; the
+            # Count every bounded execution against the per-team budget. The
             # active-team roster still emits zero-progress rows for the wave.
             session.last_relay_complete = depth == 4 and status == "complete"
             if not session.last_relay_complete:
@@ -765,7 +765,7 @@ def protocol_session(reader: BinaryIO, writer: BinaryIO, state: ArenaState) -> N
             send("BYE")
             return
         else:
-            send("ERR command; use HELP")
+            send("ERR command: use HELP")
 
 
 class _ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -792,7 +792,7 @@ def serve(state: ArenaState, host: str, port: int) -> None:
                 protocol_session(self.rfile, self.wfile, state)
             except (BrokenPipeError, ConnectionResetError, OSError):
                 # A bounded health/client probe may close immediately after its
-                # assertion; this is not a service fault and must not log a trace.
+                # assertion. This is not a service fault and must not log a trace.
                 return
             finally:
                 CLIENT_SLOTS.release()

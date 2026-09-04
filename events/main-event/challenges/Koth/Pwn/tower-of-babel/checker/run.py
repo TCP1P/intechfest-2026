@@ -142,9 +142,9 @@ def check_info(context: KothContext) -> None:
 
 @checker
 def check_read_only_errors(context: KothContext) -> None:
-    if _request(context, b"RELAY 00") != b"ERR command; use HELP":
+    if _request(context, b"RELAY 00") != b"ERR command: use HELP":
         raise Mumble("unauthenticated relay was not rejected")
-    if _request(context, b"PATCH {\"patterns\":[]}") != b"ERR command; use HELP":
+    if _request(context, b"PATCH {\"patterns\":[]}") != b"ERR command: use HELP":
         raise Mumble("unauthenticated patch was not rejected")
     if _request(context, b"STATUS") != b"ERR auth-required":
         raise Mumble("unauthenticated status was not rejected")

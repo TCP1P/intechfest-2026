@@ -422,7 +422,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", required=True, type=int)
-    parser.add_argument("--token", default="koth_localtest123", help="current event capability; local development uses the default")
+    parser.add_argument("--token", default="koth_localtest123", help="current event capability. Local development uses the default")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("--port must be in 1..65535")

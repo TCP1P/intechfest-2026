@@ -273,6 +273,7 @@ dependency and all base images for a completely Docker-Hub-free deployment.
 | Type/mode | Example |
 | --- | --- |
 | self-hosted/BYOC `AttackDefense` | [`AD/Web/parcel-panic`](../events/warmup/challenges/AD/Web/parcel-panic/) |
+| self-hosted/BYOC `AttackDefense`, built kernel image | [`AD/Pwn/yani-netlink`](../events/main-event/challenges/AD/Pwn/yani-netlink/) |
 | marker/Boot2Root `KingOfTheHill` | [`Koth/Web/draft-control`](../events/warmup/challenges/Koth/Web/draft-control/) |
 | managed-reporting `KingOfTheHill`, direct browser/API game | [`Koth/PPC/serpent-circuit`](../events/warmup/challenges/Koth/PPC/serpent-circuit/) |
 | managed-reporting `KingOfTheHill`, in-process coordinator with transport gateway | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |

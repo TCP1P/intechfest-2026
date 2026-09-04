@@ -70,6 +70,13 @@ both KotH checkers receive no flag and never inspect or alter their claim source
 
 ## Current main-event contracts
 
+- `Yani-netlink` is a self-hosted/BYOC Attack & Defense kernel challenge. The built image
+  owns its built-in TCP/UDP relay, rotating `/flag` image, and `/proc/yani` identity; its
+  checker verifies the current flag, critical hashes, CPU policy, and safe protocol probes.
+  The image includes an incomplete `yani_netfilter.c` context snippet with only `EAT`,
+  `PUKE`, and `SMOKING`. The full implementation stays in `dev/`.
+  Its initramfs has no interactive serial shell and keeps PID 1 alive with a five-second
+  sleep loop. It has no gateway or managed reporter.
 - `Rythme` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact ZIP;
   the rsctf-managed coordinator reports native evidence in process, while `gateway/` only
   keeps its stable HTTPS hostname pointed at the current target.
@@ -81,8 +88,9 @@ both KotH checkers receive no flag and never inspect or alter their claim source
   `babel-mastery` row per authenticated team in each finalized wave, and first-solver-owned
   bounded ward patches with replay-canary fallback. It has no gateway.
 
-Both challenge checkers are bounded and read-only. They receive no flag and never inspect or
-alter the KotH claim source.
+The Yani-netlink A&D checker is bounded and read-only. It receives the current flag only to
+verify the legitimate flag contract. The three main-event KotH checkers receive no flag and
+never inspect or alter their claim source.
 
 ## Secret and player boundary
 

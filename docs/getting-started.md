@@ -2,8 +2,9 @@
 
 This repository is the private rsctf Repository Bindings source for two independent
 INTECHFEST 2026 events. The warmup has one BYOC A&D challenge, one marker KotH challenge,
-and one managed Leaderboard KotH scoring game. The main event has three shared Leaderboard
-KotH challenges. Start from a real contract, not a placeholder copied only to make a
+and one managed Leaderboard KotH scoring game. The main event has one self-hosted/BYOC
+Attack & Defense challenge and three shared Leaderboard KotH challenges. Start from a real
+contract, not a placeholder copied only to make a
 directory look populated.
 
 For AI-assisted work, ask normally or invoke the matching integrated skill explicitly:
@@ -45,6 +46,7 @@ The current packages are examples of this repository's actual delivery model:
 | Package | Contract | Reuse it when |
 | --- | --- | --- |
 | `events/warmup/challenges/AD/Web/parcel-panic/` | self-hosted/BYOC A&D service, rotating flag file, read-only checker | teams must run and patch the issued image on their own host |
+| `events/main-event/challenges/AD/Pwn/yani-netlink/` | self-hosted/BYOC x86-64 kernel image, TCP/UDP relay, rotating flag, read-only checker, incomplete source snippet | a kernel challenge must stay alive without an interactive guest shell |
 | `events/warmup/challenges/Koth/Web/draft-control/` | shared marker/Boot2Root hill with an atomic `/koth/king` control path | control is exclusive and proven by placing the current KotH capability in the marker |
 | `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared multiplayer browser/API game, fair FIFO matchmaking, read-only checker, in-process managed reporter | exactly four authenticated teams are assigned per five-minute match; one match runs at a time and each completed active tick produces one bounded furthest-progress row per team |
 | `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |

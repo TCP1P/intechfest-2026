@@ -75,8 +75,8 @@ class CheckerTests(unittest.TestCase):
 
     def test_read_only_commands_are_rejected_without_a_session(self):
         responses = [
-            FakeConnection(b"ERR command; use HELP\n"),
-            FakeConnection(b"ERR command; use HELP\n"),
+            FakeConnection(b"ERR command: use HELP\n"),
+            FakeConnection(b"ERR command: use HELP\n"),
             FakeConnection(b"ERR auth-required\n"),
         ]
         with patch.object(run.socket, "create_connection", side_effect=responses):

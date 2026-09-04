@@ -25,6 +25,10 @@ for a compatible protocol:
   validates the read-only TCP greeting, wave metadata, invalid-capability boundary, and
   unauthenticated rejection paths without creating a relay session or touching managed
   evidence.
+- [Yani-netlink checker](../events/main-event/challenges/AD/Pwn/yani-netlink/checker/)
+  validates the built-in TCP protocol, CPU policy, critical file and memory hashes, the
+  rotating flag contract, and safe one-byte probes without sending an overflowing write or
+  attacker-chosen function address.
 
 The [Parcel Panic checker](../events/warmup/challenges/AD/Web/parcel-panic/checker/) is the
 self-hosted A&D example. It verifies the current injected flag through the legitimate vault
@@ -367,9 +371,10 @@ python3 checker/run.py
 echo $?
 ```
 
-Use the manifest's real exposed port (`8080` for every warmup service and Minions, or `1337`
-for Rythme). KotH sets `RSCTF_TEAM_ID=0` and omits `RSCTF_FLAG`. An A&D checker receives a
-participation ID and the current expected flag. When `requirements.txt` exists, install it
+Use the manifest's real exposed port (`8080` for every warmup service and Minions, `1337`
+for Rythme, or `31337` for Yani-netlink). KotH sets `RSCTF_TEAM_ID=0` and omits
+`RSCTF_FLAG`. An A&D checker receives a participation ID and the current expected flag.
+When `requirements.txt` exists, install it
 into a disposable venv with wheel-only exact pins before this run.
 
 CI uses the matrix emitted by rsctf to build every bundled context and waits for each

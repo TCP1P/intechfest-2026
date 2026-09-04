@@ -1,0 +1,19 @@
+name: "Yani-netlink"
+author: "m3rr"
+description: |
+  Self-hosted x86-64 kernel Pwn challenge. The built-in IPv4 netfilter
+  component accepts the YANINEKO protocol on TCP/UDP port 31337. Exploit the
+  EAT, PUKE, and SMOKING primitives to read the current round flag. Defend the
+  BYOC image without removing the public contract.
+type: AttackDefense
+category: Pwn
+disableBloodBonus: true
+
+container:
+  memoryLimit: 512
+  cpuCount: 2
+  storageLimit: 1024
+  exposePort: 31337
+
+ad:
+  selfHosted: true

@@ -4,7 +4,8 @@ Release candidate: `2026.08.28.1`
 
 This frozen release candidate covers only the INTECHFEST main event. The hidden warmup is
 still an unfrozen staging candidate; record its BYOC, Marker, and managed Leaderboard
-topology plus exact image identities here before promoting it. Live game IDs, capabilities,
+topology plus exact image identities here before promoting it. Yani-netlink is a draft
+self-hosted/BYOC addition and remains disabled until its hidden staging gates pass. Live game IDs, capabilities,
 reporter secrets, arena
 credentials, and TLS private keys are operational state and must never be
 committed.
@@ -19,6 +20,18 @@ committed.
 Each package's `solution/handout.sha256` is authoritative. Publish the archives by content
 hash and verify both the stored content length and digest before binding an attachment to a
 challenge.
+
+Yani-netlink has no `dist/` attachment; its player-facing artifact is the BYOC service image.
+Its current draft service identity is:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `bzImage` | `0262643f67d2939e43261a7577a15fd2a0d04f191979cc851ec81d46432e9a4a` |
+| `initramfs.cpio.gz` | `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89` |
+| `yani_netfilter.c` snippet | `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14` |
+| `vmlinux.unstripped` | `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db` |
+| Docker image index | `sha256:bb0700192797c342b5beae86730eb0cf68fa1dd55dcec6232682102e7980d790` |
+| Docker image config | `sha256:859b7b03a3bbdce492b72a2f8fa5b24c42082fb976a961f00ac02f17e83194d5` |
 
 ## Runtime topology
 
@@ -47,6 +60,13 @@ eight accepted teams before official KotH scoring starts; unused slots become
 NPCs. A larger field requires a deliberate game-capacity change and a new load
 rehearsal, not a production configuration override.
 
+Yani-netlink is one self-hosted/BYOC A&D kernel target with no gateway or managed reporter.
+Its built-in relay owns TCP/UDP port `31337`; the initramfs has no interactive serial shell
+and keeps PID 1 alive with a five-second sleep loop. The A&D checker validates the rotating
+flag, critical file and memory hashes, CPU policy, and safe protocol probes. The image
+includes an incomplete source snippet with only `EAT`, `PUKE`, and `SMOKING`, plus
+`vmlinux.unstripped` for reverse engineering.
+
 Set `RSCTF_KOTH_REPORTER_BASE_URL` to the private control-service origin before
 enabling Leaderboard scoring. Both gateway Compose files use a read-only
 filesystem, non-root user, dropped capabilities, `no-new-privileges`, bounded
@@ -73,6 +93,7 @@ gitleaks git --staged --config .gitleaks.toml .
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/src/supervisor && go test -race ./... && go vet ./...)
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/gateway && go test -race ./... && go vet ./...)
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/checker && python3 -m unittest test_run.py)
+(cd events/main-event/challenges/AD/Pwn/yani-netlink/checker && python3 -m unittest test_run.py)
 ```
 
 Run both `build-release.sh` scripts, validate the ZIP central directories, and

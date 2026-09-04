@@ -222,7 +222,7 @@ def _fetch_context(config: Config, prior: Context | None) -> Context:
     except ReporterHTTPError as error:
         if error.status == 409 and error.detail in {
             "Leaderboard KotH context is not active",
-            "Leaderboard KotH context changed; fetch context and retry",
+            "Leaderboard KotH context changed: fetch context and retry",
         }:
             raise ReporterInactive(error.status, error.detail) from error
         raise
@@ -371,7 +371,7 @@ def _submit(config: Config, context: Context, body: bytes, last_timestamp: int) 
     except ReporterHTTPError as error:
         if error.status == 409 and error.detail in {
             "Leaderboard KotH context is not active",
-            "Leaderboard KotH context changed; fetch context and retry",
+            "Leaderboard KotH context changed: fetch context and retry",
         }:
             raise ReporterInactive(error.status, error.detail) from error
         raise
