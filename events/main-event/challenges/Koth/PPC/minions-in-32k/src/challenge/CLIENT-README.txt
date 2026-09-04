@@ -33,5 +33,5 @@ Linux runtime packages vary by distribution. The client needs a Vulkan-capable
 graphics driver, ALSA, libudev, and X11 compatibility libraries. The Windows
 client is the recommended build for the current private event.
 
-The archive includes CORRESPONDING-SOURCE.zip, the AGPL-3.0 code license, the
-CC BY-NC-SA 4.0 content license, and the full attribution/modification notice.
+The archive includes the AGPL-3.0 code license, the CC BY-NC-SA 4.0 content
+license, and the full attribution/modification notice.

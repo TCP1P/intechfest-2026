@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${BUILD}/handout" "${BUILD}/source/minions-in-32k-source"
+mkdir -p "${BUILD}/handout"
 
 echo "[*] Ensuring the Windows Rust target is installed"
 rustup target add --toolchain "${RUST_TOOLCHAIN}" "${WINDOWS_TARGET}"
@@ -33,30 +33,6 @@ install -m 0644 "${GAME}/target/${WINDOWS_TARGET}/release/client.exe" \
     "${BUILD}/handout/minions-in-32k.exe"
 x86_64-w64-mingw32-strip --strip-unneeded "${BUILD}/handout/minions-in-32k.exe"
 
-echo "[*] Assembling exact corresponding source"
-SOURCE="${BUILD}/source/minions-in-32k-source"
-rsync -a \
-    --exclude target \
-    --exclude dist \
-    --exclude 'replays/***' \
-    --exclude crates/backend \
-    --exclude crates/headless-client \
-    --exclude crates/latency-proxy \
-    --exclude crates/replay \
-    --exclude crates/server \
-    --exclude crates/spectator \
-    --exclude deploy \
-    --exclude fuzz \
-    "${GAME}/" "${SOURCE}/game/"
-mkdir -p "${SOURCE}/game/replays"
-touch "${SOURCE}/game/replays/.gitkeep"
-cp "${ROOT}/challenge/SOURCE-README.md" "${SOURCE}/README.md"
-cp "${ROOT}/challenge/NOTICE.txt" "${SOURCE}/NOTICE.txt"
-(
-    cd "${BUILD}/source"
-    zip -X -q -9 -r "${BUILD}/handout/CORRESPONDING-SOURCE.zip" minions-in-32k-source
-)
-
 cp "${ROOT}/challenge/CLIENT-README.txt" "${BUILD}/handout/README.txt"
 cp "${ROOT}/challenge/NOTICE.txt" "${BUILD}/handout/NOTICE.txt"
 cp "${GAME}/LICENSE" "${BUILD}/handout/LICENSE-AGPL-3.0.txt"
@@ -71,8 +47,7 @@ echo "[*] Creating ${ARCHIVE}"
         README.txt \
         NOTICE.txt \
         LICENSE-AGPL-3.0.txt \
-        LICENSE-CONTENT-CC-BY-NC-SA-4.0.md \
-        CORRESPONDING-SOURCE.zip
+        LICENSE-CONTENT-CC-BY-NC-SA-4.0.md
 )
 
 if unzip -tqq "${PUBLISH}/${ARCHIVE}" >/dev/null; then

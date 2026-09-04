@@ -8,7 +8,7 @@
 - Revision: working tree; freeze only after the committed rsctf layout is reproduced
 - Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: hybrid shared service and `dist/game_minions-in-32k.zip`
-- Handout SHA-256: `25f164e54aff5df40bf3637b2935de863b747fd094faada11aeb482f4500d1a4`
+- Handout SHA-256: `bb46e59ae3e222d91df10843b1937bc0a8ae6b612384a7fb44808de3a0e9dcdc`
 - Runtime image: local `sha256:1e8b334a532c875ce27cc699bb41e9872699af5c4722e7677e039e114bb2bd76`
 - Backend: local Docker arena; direct TCP/UDP verified 2026-09-04 UTC by Codex; hidden-staging rehearsal still required
 - Solver command: `python3 solution/solve.py --host TARGET --port UDP_PORT --key ARENA_KEY --cert-hash CERT_SHA256`
@@ -28,7 +28,7 @@ objective-aware navigation, and player-driven combat.
 ## Player inputs
 
 - The exact `game_minions-in-32k.zip` handout with Linux and Windows clients, notices,
-  licenses, and corresponding public source.
+  and licenses.
 - The public challenge description and secure event lobby.
 - The current private target IPv4 address shown by RSCTF and the event VPN profile.
 - The team's current KotH capability, exchanged directly with the managed target for an
@@ -39,7 +39,8 @@ authenticator, another team's key, or the organizer reference client.
 
 ## Walkthrough
 
-1. Extract the handout and inspect the corresponding protocol-v13 source and client options.
+1. Extract the handout and inspect the protocol-v13 client options. Organizer-side source
+   remains under `src/game/` and is not part of the player archive.
 2. Start the client, enter the current KotH capability in the secure lobby, and retain the
    issued arena endpoint, arena key, and certificate SHA-256.
 3. Observe that ordinary frags create temporary objective markers rather than immediately

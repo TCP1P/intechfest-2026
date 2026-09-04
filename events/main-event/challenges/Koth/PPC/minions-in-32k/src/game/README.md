@@ -5,8 +5,8 @@ Gru's lab — a two-storey vertical arena under an open night sky (the moon is
 right there; the rocket is aimed at it) — starring minion characters.
 
 - **Server** (Rust): authoritative, sandboxed, feature-flagged, records
-  deterministic replays, emits perf telemetry. Source is included as AGPL
-  corresponding source; the primary handout remains the client binary.
+  deterministic replays, and emits performance telemetry. The player handout
+  contains only the client builds, notices, and licenses.
 - **Client** (Bevy, Rust): distributed as a **single self-contained exe**
   (all assets embedded). Internal render resolution is 256×128 — exactly
   32 768 pixels. The CTF rewards fighting, then converting frags into
