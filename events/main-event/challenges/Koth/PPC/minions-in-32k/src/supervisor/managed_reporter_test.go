@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -87,6 +88,40 @@ func TestManagedReporterConsumesRawRSCTFResponsesAndSignsSnapshot(t *testing.T) 
 	}
 	if !signed {
 		t.Fatal("snapshot did not carry the managed HMAC headers")
+	}
+	if cached, ok := reporter.recentSessionContext(time.Now().UTC()); !ok ||
+		len(cached.EligibleTokenHashes) != 1 || cached.EligibleTokenHashes[0] != token {
+		t.Fatalf("validated reporting context was not cached for sessions: ok=%v context=%+v", ok, cached)
+	}
+}
+
+func TestSessionContextReusesRecentValidatedReporterResult(t *testing.T) {
+	now := time.Now().UTC()
+	token := strings.Repeat("a", 64)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "busy", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	contextURL, _ := url.Parse(server.URL + "/context")
+	reporter := newManagedReporter(managedReporterConfig{
+		ContextURL: contextURL, Secret: testManagedSecret,
+	}, strings.Repeat("r", 64), &arena{})
+	reporter.rememberSessionContext(managedContext(now, token), now)
+
+	current, err := reporter.contextForSession(context.Background(), now.Add(sessionContextTTL))
+	if err != nil || len(current.EligibleTokenHashes) != 1 || current.EligibleTokenHashes[0] != token {
+		t.Fatalf("recent context was not reused: context=%+v error=%v", current, err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("recent context made %d unnecessary upstream requests", requests.Load())
+	}
+	if _, err := reporter.contextForSession(context.Background(), now.Add(sessionContextTTL+time.Millisecond)); err == nil {
+		t.Fatal("stale context bypassed the upstream admission boundary")
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("stale context made %d upstream requests, want 1", requests.Load())
 	}
 }
 

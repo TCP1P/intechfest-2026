@@ -27,6 +27,7 @@ const (
 	arenaRetryReady    = 5 * time.Second
 	arenaStaging       = 30 * time.Second
 	arenaStartMargin   = 10 * time.Second
+	sessionContextTTL  = 30 * time.Second
 )
 
 var errManagedRoundGap = errors.New("rsctf scoring context is not active")
@@ -46,14 +47,16 @@ type managedReporter struct {
 	arena       *arena
 	client      *http.Client
 
-	mu            sync.Mutex
-	waves         map[string]finalizedWave
-	matches       map[string]*matchSequence
-	replays       map[string]replayArtifact
-	lastContext   string
-	lastDigest    [32]byte
-	hasDigest     bool
-	lastTimestamp int64
+	mu               sync.Mutex
+	waves            map[string]finalizedWave
+	matches          map[string]*matchSequence
+	replays          map[string]replayArtifact
+	lastContext      string
+	lastDigest       [32]byte
+	hasDigest        bool
+	lastTimestamp    int64
+	sessionContext   reportingContext
+	sessionContextAt time.Time
 }
 
 type capabilityIdentity struct {
@@ -227,7 +230,7 @@ func (a *arena) createSession(w http.ResponseWriter, request *http.Request) {
 	}
 	credential, found := a.credentialForToken(identity.TeamID)
 	if !found {
-		current, err := a.reporter.fetchContext(request.Context())
+		current, err := a.reporter.contextForSession(request.Context(), time.Now().UTC())
 		if err != nil {
 			if errors.Is(err, errManagedRoundGap) {
 				writeArenaRetryProblem(w, time.Now().UTC(), time.Now().UTC().Add(arenaRetryReady))
@@ -383,7 +386,42 @@ func (r *managedReporter) fetchContext(ctx context.Context) (reportingContext, e
 	if err := decodeBounded(response.Body, &current); err != nil || !validReportingContext(current) {
 		return reportingContext{}, errors.New("rsctf context is invalid")
 	}
+	r.rememberSessionContext(current, time.Now().UTC())
 	return current, nil
+}
+
+func cloneReportingContext(value reportingContext) reportingContext {
+	value.EligibleTokenHashes = append([]string(nil), value.EligibleTokenHashes...)
+	value.ObjectiveIDs = append([]string(nil), value.ObjectiveIDs...)
+	if value.ObjectiveSchemaHash != nil {
+		schemaHash := *value.ObjectiveSchemaHash
+		value.ObjectiveSchemaHash = &schemaHash
+	}
+	return value
+}
+
+func (r *managedReporter) rememberSessionContext(current reportingContext, receivedAt time.Time) {
+	r.mu.Lock()
+	r.sessionContext = cloneReportingContext(current)
+	r.sessionContextAt = receivedAt
+	r.mu.Unlock()
+}
+
+func (r *managedReporter) recentSessionContext(now time.Time) (reportingContext, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sessionContextAt.IsZero() || now.Before(r.sessionContextAt) ||
+		now.Sub(r.sessionContextAt) > sessionContextTTL {
+		return reportingContext{}, false
+	}
+	return cloneReportingContext(r.sessionContext), true
+}
+
+func (r *managedReporter) contextForSession(ctx context.Context, now time.Time) (reportingContext, error) {
+	if current, ok := r.recentSessionContext(now); ok {
+		return current, nil
+	}
+	return r.fetchContext(ctx)
 }
 
 func validReportingContext(value reportingContext) bool {
