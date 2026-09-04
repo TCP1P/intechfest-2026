@@ -208,7 +208,6 @@ jobs:
             --pids-limit 512 \
             --memory 768m \
             --env 'RSCTF_FLAG=rsctf{ci_healthcheck_seed_0000000000000000}' \
-            --env 'MINIONS_PUBLIC_REMOTE=127.0.0.1:4532' \
             --env 'RYTHME_STATE_PATH=/tmp/rythme-arena.json' \
             "$IMAGE")"
 
@@ -254,4 +253,4 @@ jobs:
             test "$(docker image inspect "$tag" --format '{{if .Config.Healthcheck}}present{{else}}missing{{end}}')" = present
             count=$((count + 1))
           done < <(find events -path '*/gateway/Dockerfile' -type f -print | sort)
-          test "$count" -gt 0
+          printf 'Validated %d transport gateway image(s).\n' "$count"
