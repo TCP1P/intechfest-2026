@@ -30,8 +30,8 @@ Its current draft service identity is:
 | `initramfs.cpio.gz` | `ff06f3f8278c424021c3407d1752e24797b16c426cd353ccd63f21c7ec5d9e89` |
 | `yani_netfilter.c` snippet | `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14` |
 | `vmlinux.unstripped` | `48bc49a2b9995dea834630568412483be0af58e85b20aec4984c846abdfdf5db` |
-| Docker image index | `sha256:3857f9c0cedadadc5ceca4a822f24e0adb8927300823406aeaafee533c492208` |
-| Docker image config | `sha256:c6e4c5fcc83f4e7c037d6ad1fec32ce59971a177626ebdbc7cb01af5345b70d9` |
+| Docker image index | `sha256:57b2a9d0f36694a12dc4d4411880d489cb301be17ff77ad6e669de5440e6efc6` |
+| Docker image config | `sha256:e2404332b6e855defd75ae94dcc2a83f20d18917e10fd224b60e26f95ef47a1e` |
 
 The unstripped ELF is stored in the Docker context as three sub-50 MB parts. The
 Dockerfile joins them into the read-only `/opt/yani/vmlinux.unstripped` path.
@@ -68,7 +68,8 @@ Its built-in relay owns TCP/UDP port `31337`; the initramfs has no interactive s
 and keeps PID 1 alive with a five-second sleep loop. The A&D checker validates the rotating
 flag, critical file and memory hashes, CPU policy, and safe protocol probes. The image
 includes an incomplete source snippet with only `EAT`, `PUKE`, and `SMOKING`, plus
-`vmlinux.unstripped` for reverse engineering.
+`vmlinux.unstripped` for reverse engineering. The launcher keeps writable state in
+`/tmp/yani` so the service also passes a read-only Docker health run.
 
 Set `RSCTF_KOTH_REPORTER_BASE_URL` to the private control-service origin before
 enabling Leaderboard scoring. Both gateway Compose files use a read-only

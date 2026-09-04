@@ -13,8 +13,8 @@
 - The Docker context stores this ELF as `vmlinux.unstripped.part-00`,
   `vmlinux.unstripped.part-01`, and `vmlinux.unstripped.part-02`. Docker joins
   them into `/opt/yani/vmlinux.unstripped`.
-- Docker image index: `sha256:3857f9c0cedadadc5ceca4a822f24e0adb8927300823406aeaafee533c492208`
-- Docker image config: `sha256:c6e4c5fcc83f4e7c037d6ad1fec32ce59971a177626ebdbc7cb01af5345b70d9`
+- Docker image index: `sha256:57b2a9d0f36694a12dc4d4411880d489cb301be17ff77ad6e669de5440e6efc6`
+- Docker image config: `sha256:e2404332b6e855defd75ae94dcc2a83f20d18917e10fd224b60e26f95ef47a1e`
 - Player transport: TCP port `31337`. UDP accepts one request per datagram.
 - The relay, netfilter hook, and `/proc/yani` are built into `bzImage`. The
   initramfs contains BusyBox and boot files only. It has no challenge daemon or
@@ -22,6 +22,8 @@
 - The image includes `/opt/yani/yani_netfilter.c`, an incomplete context snippet
   that shows only `EAT`, `PUKE`, and `SMOKING`. The full implementation stays in
   `dev/`. It also includes `/opt/yani/vmlinux.unstripped` for reverse engineering.
+- The launcher uses `/tmp/yani` for writable runtime state and accepts `RSCTF_FLAG`
+  when the platform does not mount `RSCTF_FLAG_FILE`.
 - `CONFIG_DEFAULT_MMAP_MIN_ADDR=0` is compiled into the kernel.
 
 ## Protocol

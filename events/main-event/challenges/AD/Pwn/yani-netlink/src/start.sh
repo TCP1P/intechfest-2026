@@ -2,13 +2,17 @@
 set -eu
 
 ROOT=${YANI_ROOT:-/opt/yani}
-RUNTIME=${YANI_RUNTIME:-/run/yani}
+RUNTIME=${YANI_RUNTIME:-/tmp/yani}
 FLAG_SOURCE=${RSCTF_FLAG_FILE:-/run/rsctf/flag}
 FLAG_IMAGE=$RUNTIME/flag.img
 SERIAL_SOCKET=$RUNTIME/serial.sock
 HOST_PORT=${YANI_HOST_PORT:-31337}
 
 mkdir -p "$RUNTIME"
+if [ ! -r "$FLAG_SOURCE" ] && [ -n "${RSCTF_FLAG:-}" ]; then
+	FLAG_SOURCE=$RUNTIME/flag.source
+	printf '%s\n' "$RSCTF_FLAG" > "$FLAG_SOURCE"
+fi
 truncate -s 4096 "$FLAG_IMAGE"
 
 sync_flag() {
