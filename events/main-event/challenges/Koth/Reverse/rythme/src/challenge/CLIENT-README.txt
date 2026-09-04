@@ -7,10 +7,11 @@ settings, audio controls, input bindings, editor, local library, and solo play.
 The single executable contains its required native Windows policy library;
 the .NET host extracts that component automatically when the client starts.
 
-Open PLAY, MULTI, then CROWN ARENA. The event coordinator is preconfigured as
-https://rythme-private.tcp.1pc.tf/. Paste only the `koth_...` token shown in
-the RSCTF challenge panel. RSCTF supplies your official team identity; no
-server URL, Team ID, or crew name is needed.
+Connect the event VPN, then open PLAY, MULTI, and CROWN ARENA. Copy the current
+private target shown in the RSCTF challenge panel (for example
+`http://10.13.41.3:1337/`) into TARGET, then paste the `koth_...` token. The
+target can change after a Crown reset, so always use the current address.
+RSCTF supplies your official team identity; no Team ID or crew name is needed.
 
 The event client has no local Team ID or crew-name fields. It exchanges the
 RSCTF KotH token for the authoritative team identity. The token lasts for the

@@ -57,6 +57,7 @@ namespace osu.Desktop.Rythme
 
         private Container roomPanel = null!;
         private Container connectionPanel = null!;
+        private OsuTextBox serverBox = null!;
         private OsuPasswordTextBox tokenBox = null!;
         private OsuTextFlowContainer connectionMessage = null!;
         private Box connectionMessageBackground = null!;
@@ -494,7 +495,7 @@ namespace osu.Desktop.Rythme
                         Anchor = Anchor.Centre,
                         Origin = Anchor.Centre,
                         Width = 760,
-                        Height = 400,
+                        Height = 480,
                         Masking = true,
                         CornerRadius = 16,
                         Children =
@@ -539,25 +540,25 @@ namespace osu.Desktop.Rythme
                                     },
                                     new OsuSpriteText
                                     {
-                                        Text = $"SECURE SESSION  •  {options.Server.Host}",
-                                        Font = OsuFont.GetFont(size: 14, weight: FontWeight.SemiBold),
-                                        Colour = colours.GreenLight,
-                                    },
-                                    new OsuSpriteText
-                                    {
-                                        Text = "1  COPY YOUR ARENA TOKEN FROM RSCTF",
+                                        Text = "1  CONNECT THE EVENT VPN AND COPY THE CURRENT TARGET",
                                         Font = OsuFont.GetFont(size: 12, weight: FontWeight.Bold),
                                         Colour = colours.GrayB,
                                     },
+                                    serverBox = new OsuTextBox
+                                    {
+                                        PlaceholderText = "http://10.13.41.3:1337/",
+                                        Text = options.Server.IsLoopback ? string.Empty : options.Server.AbsoluteUri,
+                                        RelativeSizeAxes = Axes.X,
+                                    },
                                     new OsuSpriteText
                                     {
-                                        Text = "Open the Rythme challenge and copy “Your arena capability”.",
+                                        Text = "2  COPY YOUR ARENA TOKEN FROM RSCTF",
                                         Font = OsuFont.GetFont(size: 13),
                                         Colour = Color4.LightGray,
                                     },
                                     tokenBox = new OsuPasswordTextBox
                                     {
-                                        PlaceholderText = "2  Paste the koth_… arena token",
+                                        PlaceholderText = "Paste the koth_… arena token",
                                         Text = initialToken,
                                         RelativeSizeAxes = Axes.X,
                                     },
@@ -592,7 +593,7 @@ namespace osu.Desktop.Rythme
                                                 Y = 11,
                                                 Width = 664,
                                                 Height = 44,
-                                                Text = "Your token is used only to create the private arena session. It is never shown in the lobby.",
+                                                Text = "The target address comes from RSCTF and is reachable only through the event VPN. Your token is never shown in the lobby.",
                                             },
                                         ],
                                     },
@@ -650,6 +651,11 @@ namespace osu.Desktop.Rythme
             if (connectionTask is { IsCompleted: false })
                 return;
 
+            if (!options.TrySetServer(serverBox.Text, out string serverError))
+            {
+                setConnectionMessage(serverError, ConnectionTone.Warning);
+                return;
+            }
             Uri server = options.Server;
 
             string token = tokenBox.Text.Trim();

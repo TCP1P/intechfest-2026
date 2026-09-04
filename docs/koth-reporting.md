@@ -17,13 +17,11 @@ Four packages use this model:
   do not carry progress into later ticks. The player-facing HTTP transport needs no gateway.
 
 - [Rythme](../events/main-event/challenges/Koth/Reverse/rythme/) runs its reporter
-  inside the Go coordinator. Its transport-only
-  [gateway](../events/main-event/challenges/Koth/Reverse/rythme/gateway/) keeps
-  the released client's stable HTTPS origin pointed at the current target.
+  inside the Go coordinator. Players connect directly to the current private IPv4 target
+  through the event VPN on the declared TCP port.
 - [Minions in 32K](../events/main-event/challenges/Koth/PPC/minions-in-32k/)
-  runs match validation and reporting inside the arena supervisor. Its
-  [gateway](../events/main-event/challenges/Koth/PPC/minions-in-32k/gateway/)
-  is a stateless TCP/UDP protocol adapter and has no scoring credential.
+  runs match validation and reporting inside the arena supervisor. Its HTTP session API and
+  QUIC gameplay use TCP and UDP on the same declared port at the current private target.
 
 - [Tower of Babel](../events/main-event/challenges/Koth/Pwn/tower-of-babel/) owns a direct
   TCP coordinator and a player-safe terminal-lobby handout, then reports one `babel-mastery` ratio per finalized 60-second wave from
@@ -292,8 +290,8 @@ reporter secret to disk.
 ## When a gateway is justified
 
 Add `gateway/` only when the platform's exposed transport cannot directly serve
-the player protocol, as with Rythme's stable HTTPS client origin or Minions'
-public HTTPS metadata plus UDP gameplay.
+the player protocol. No current INTECHFEST challenge requires one: RSCTF admits both TCP
+and UDP on the declared private target port, and event-VPN clients select the current target.
 A gateway may adapt transport, terminate TLS, rate-limit sessions, and track the
 current target address. It must not:
 

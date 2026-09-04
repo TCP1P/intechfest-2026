@@ -56,7 +56,7 @@ cd ../../../../rsctf-production/intechfest/minions32/bridge
 go test ./...
 ```
 
-Run `python3 solution/solve.py --host 127.0.0.1 --port 4433 --key LOCAL_KEY --insecure`
+Run `python3 solution/solve.py --host 127.0.0.1 --port 8080 --key LOCAL_KEY --insecure`
 against a local
 server only as an automated regression actor. It is not a scoring-eligible
 player reference.

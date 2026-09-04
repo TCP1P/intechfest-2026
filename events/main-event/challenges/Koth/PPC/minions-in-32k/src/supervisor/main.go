@@ -34,6 +34,7 @@ const (
 	botPath       = "/usr/local/bin/minions-headless"
 	replayPath    = "/tmp/minions-replays"
 	readyPath     = "/tmp/minions-arena-ready"
+	arenaPort     = 8080
 	defaultGrace  = 30
 	defaultMatch  = 300
 	maxPlayers    = 8
@@ -49,15 +50,14 @@ var supervisorBuild = "dev"
 var errRosterConflict = errors.New("arena roster changed while a match is running")
 
 type config struct {
-	reportToken  string
-	certHash     string
-	certDER      string
-	keyDER       string
-	publicRemote string
-	managed      *managedReporterConfig
-	graceSecs    int
-	matchSecs    int
-	roster       *arenaRoster
+	reportToken string
+	certHash    string
+	certDER     string
+	keyDER      string
+	managed     *managedReporterConfig
+	graceSecs   int
+	matchSecs   int
+	roster      *arenaRoster
 }
 
 type arenaRoster struct {
@@ -234,15 +234,10 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
-	publicRemote := environmentDefault("MINIONS_PUBLIC_REMOTE", "tcp.1pc.tf:4532")
-	if !validRemote(publicRemote) {
-		return config{}, errors.New("MINIONS_PUBLIC_REMOTE must be a host and UDP port")
-	}
 	return config{
 		reportToken: reportToken, certHash: certHash, certDER: certDER, keyDER: keyDER,
-		publicRemote: publicRemote,
-		managed:      managed,
-		graceSecs:    graceSecs, matchSecs: matchSecs,
+		managed:   managed,
+		graceSecs: graceSecs, matchSecs: matchSecs,
 		roster: roster,
 	}, nil
 }
@@ -577,7 +572,7 @@ func (a *arena) runQualityProbe(mode string) error {
 	if !warming && (!botsRunning || lastError != "") {
 		return errors.New("arena NPC process is unavailable")
 	}
-	return a.runPinnedJoinProbe(fmt.Sprintf("127.0.0.1:%d", 4433))
+	return a.runPinnedJoinProbe(fmt.Sprintf("127.0.0.1:%d", arenaPort))
 }
 
 func (a *arena) runPinnedJoinProbe(remote string) error {
@@ -739,7 +734,7 @@ func (a *arena) ensureStarted(roster *arenaRoster) (status, bool, error) {
 	_ = os.Remove(readyPath)
 	command := exec.Command(
 		serverPath,
-		"--bind", "0.0.0.0:4433",
+		"--bind", fmt.Sprintf("0.0.0.0:%d", arenaPort),
 		"--wt-bind", "127.0.0.1:4434",
 		"--replay-dir", replayPath,
 		"--grace-secs", strconv.Itoa(a.cfg.graceSecs),
@@ -814,7 +809,7 @@ func (a *arena) startBots(matchID string) {
 
 func botArguments(cfg config, roster arenaRoster) []string {
 	return []string{
-		"--remote", "127.0.0.1:4433",
+		"--remote", fmt.Sprintf("127.0.0.1:%d", arenaPort),
 		"--count", strconv.Itoa(roster.botCount),
 		"--npc-count", strconv.Itoa(roster.botCount),
 		"--keys", roster.botKeys,

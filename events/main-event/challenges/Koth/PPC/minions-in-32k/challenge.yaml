@@ -3,22 +3,22 @@ name: "Minions in 32K"
 author: "Project Sekai CTF contributors and dimasma0305"
 description: |
   Fight for control of Gru's Lab in an objective-aware arena rendered at
-  exactly 32,768 internal pixels. Download the client, reverse protocol v13,
-  automate combat and confirmation routing, and sustain the best confirmed
-  performance across the arena.
+  exactly 32,768 internal pixels. Download the client, connect through the
+  event VPN to the current private target shown by RSCTF, reverse protocol
+  v13, and sustain the best confirmed performance across the arena.
 type: KingOfTheHill
 category: PPC
 disableBloodBonus: true
 provide: dist/game_minions-in-32k.zip
 
 container:
-  # Repository Bindings builds the shared arena from src/Dockerfile. The
-  # player-facing UDP relay is operated separately from gateway/.
+  # The supervisor serves HTTP/TCP and QUIC/UDP on the same declared port, so
+  # players can use the RSCTF-issued private target directly through the VPN.
   memoryLimit: 512
   cpuCount: 2
   exposePort: 8080
 
 ad:
-  # The player gateway and rsctf's lifecycle-bound callback are private paths;
-  # this target does not need unrestricted internet access at runtime.
+  # The rsctf lifecycle-bound callback is private; this target does not need
+  # unrestricted internet access at runtime.
   allowEgress: false

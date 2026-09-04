@@ -10,8 +10,19 @@ try
     Environment.SetEnvironmentVariable("RYTHME_AUTO_JOIN", null);
     RythmeOptions defaults = RythmeOptions.Parse([]);
     require(
-        defaults.Server == new Uri("https://rythme-private.tcp.1pc.tf/"),
-        "release default did not use the production coordinator");
+        defaults.Server == new Uri("http://127.0.0.1:1337/"),
+        "release default must not embed a stale event target");
+    require(
+        defaults.TrySetServer("http://10.13.41.3:1337", out _) &&
+        defaults.Server == new Uri("http://10.13.41.3:1337/"),
+        "lobby rejected the private RSCTF target");
+    require(
+        !defaults.TrySetServer("http://8.8.8.8:1337", out string publicHttpError) &&
+        publicHttpError.Contains("event VPN", StringComparison.Ordinal),
+        "lobby accepted a public plain-HTTP target");
+    require(
+        !defaults.TrySetServer("https://example.com", out _),
+        "lobby accepted a gateway hostname instead of the private RSCTF target");
     require(!defaults.AutoJoin, "auto-start must require an explicit player choice");
 
     Environment.SetEnvironmentVariable("RYTHME_TOKEN", "koth_test_secret");
@@ -39,6 +50,14 @@ try
     require(
         RythmeOptions.Parse([]).Server == new Uri("http://127.0.0.1:1337/"),
         "loopback development override stopped working");
+    Environment.SetEnvironmentVariable("RYTHME_SERVER", "http://10.13.41.3:1337");
+    require(
+        RythmeOptions.Parse([]).Server == new Uri("http://10.13.41.3:1337/"),
+        "private RSCTF target override stopped working");
+    expectFailure(
+        () => RythmeOptions.Parse(["--server=http://8.8.8.8:1337"]),
+        "public plain-HTTP coordinator was accepted");
+    Environment.SetEnvironmentVariable("RYTHME_SERVER", null);
 
     var automation = new RythmeLobbyAutomation();
     automation.ObserveHeat("heat-1");

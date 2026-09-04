@@ -2,19 +2,21 @@ MINIONS IN 32K — PLAYER QUICK START
 ===================================
 
 Windows PowerShell:
-  .\minions-in-32k.exe
+  .\minions-in-32k.exe --server http://TARGET_IP:8080
 
 Linux:
   chmod +x minions-in-32k
-  ./minions-in-32k
+  ./minions-in-32k --server http://TARGET_IP:8080
 
-Copy the stable KotH token from the RSCTF challenge panel. Paste it into the
-masked SECURE EVENT LOBBY field with Ctrl+V or PASTE TOKEN, then select CONNECT.
-The --token option remains available for scripted launchers.
+Connect the event VPN, then replace TARGET_IP with the current private target
+shown by RSCTF. Copy the stable KotH token from the challenge panel, paste it
+into the masked SECURE EVENT LOBBY field, then select CONNECT. The target can
+change after a Crown reset, so restart with the address currently shown by
+RSCTF. The --token option remains available for scripted launchers.
 
-The lobby securely exchanges the stable RSCTF KotH capability with
-https://minions-private.tcp.1pc.tf, then connects to the authoritative arena
-over certificate-pinned QUIC/UDP. The capability is not sent to the arena.
+The lobby exchanges the stable RSCTF KotH capability with the private managed
+target, then connects to the same target and port over certificate-pinned
+QUIC/UDP. Plain HTTP is accepted only for a private IPv4 address.
 
 Choose a minion during the 30-second staging period. Move with W/A/S/D, aim
 with the mouse, and fire with the left mouse button. An opponent frag drops a

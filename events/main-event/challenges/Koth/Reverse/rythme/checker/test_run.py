@@ -26,7 +26,7 @@ def config(**changes):
         "protocol": "rythme-secure-channel-v3",
         "rctf_auth": True,
         "rulesets": ["osu", "taiko", "fruits", "mania"],
-        "server_build": "2026.08.28.1",
+        "server_build": "2026.09.04.1",
         "transport": "authenticated arena channel",
     }
     value.update(changes)

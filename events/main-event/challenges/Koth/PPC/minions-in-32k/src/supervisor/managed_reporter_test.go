@@ -109,7 +109,7 @@ func TestSessionKeepsCapabilityAtTheSupervisorBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	game := &arena{cfg: config{
-		certHash: strings.Repeat("c", 64), publicRemote: "public.example:4532", roster: &roster,
+		certHash: strings.Repeat("c", 64), roster: &roster,
 	}}
 	reporter := newManagedReporter(managedReporterConfig{
 		GameID: 7, ChallengeID: 11, PlatformURL: platform, Secret: testManagedSecret,
@@ -119,6 +119,7 @@ func TestSessionKeepsCapabilityAtTheSupervisorBoundary(t *testing.T) {
 	game.matchID = "m32-existing"
 	game.expectedEnd = time.Now().Add(time.Minute)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/arena-session", http.NoBody)
+	request.Host = "10.13.41.3:8080"
 	request.Header.Set("Authorization", "Bearer "+capability)
 	recorder := httptest.NewRecorder()
 	game.createSession(recorder, request)
@@ -129,9 +130,28 @@ func TestSessionKeepsCapabilityAtTheSupervisorBoundary(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&session); err != nil {
 		t.Fatal(err)
 	}
-	if session.Name != "Team_"+token[:12] || session.Remote != "public.example:4532" ||
+	if session.Name != "Team_"+token[:12] || session.Remote != "10.13.41.3:8080" ||
 		session.Key != managedCredential(testManagedSecret, "player-key", token) {
 		t.Fatalf("unexpected session: %+v", session)
+	}
+}
+
+func TestDirectArenaRemoteAcceptsOnlyPrivateIPv4Targets(t *testing.T) {
+	for _, host := range []string{
+		"127.0.0.1:8080",
+		"10.13.41.3:8080",
+		"172.16.4.8:8080",
+		"192.168.2.9:8080",
+	} {
+		remote, ok := directArenaRemote(host)
+		if !ok || remote != strings.Split(host, ":")[0]+":8080" {
+			t.Fatalf("host=%q remote=%q ok=%v", host, remote, ok)
+		}
+	}
+	for _, host := range []string{"example.com:8080", "8.8.8.8:8080", "[::1]:8080"} {
+		if remote, ok := directArenaRemote(host); ok {
+			t.Fatalf("host=%q unexpectedly resolved to %q", host, remote)
+		}
 	}
 }
 

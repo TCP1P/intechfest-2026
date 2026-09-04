@@ -3,7 +3,7 @@
 ARG RUST_IMAGE=rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc
 ARG GO_IMAGE=golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee
 ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
-ARG MINIONS_VERSION=2026.08.28.1
+ARG MINIONS_VERSION=2026.09.04.1
 ARG SOURCE_REVISION=unknown
 
 FROM ${RUST_IMAGE} AS rust-build
@@ -56,7 +56,7 @@ ENV MINIONS_GRACE_SECS=30 \
     RUST_LOG=info,wtransport=warn
 
 USER 32032:32032
-EXPOSE 8080/tcp 4433/udp
+EXPOSE 8080/tcp 8080/udp
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=12 \
     CMD ["/usr/local/bin/minions-supervisor", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/minions-supervisor"]

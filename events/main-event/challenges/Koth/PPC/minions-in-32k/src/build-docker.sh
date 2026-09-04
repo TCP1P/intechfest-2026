@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="minions-in-32k:local"
 CONTAINER="minions-in-32k-local"
 HTTP_PORT="${MINIONS_HTTP_PORT:-32032}"
-UDP_PORT="${MINIONS_UDP_PORT:-4433}"
+UDP_PORT="${MINIONS_UDP_PORT:-8080}"
 
 if [[ "${1:-}" == "stop" ]]; then
     docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
@@ -43,7 +43,7 @@ docker run -d \
     --memory 512m \
     --cpus 2 \
     -p "${HTTP_PORT}:8080/tcp" \
-    -p "${UDP_PORT}:4433/udp" \
+    -p "${UDP_PORT}:8080/udp" \
     -e "RSCTF_FLAG=${RUNTIME_SEED}" \
     -e "REPORT_URL=http://127.0.0.1:9/report" \
     "${IMAGE}" >/dev/null

@@ -8,10 +8,10 @@
 - Revision: working tree; freeze only after the committed rsctf layout is reproduced
 - Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: hybrid shared service and `dist/reversing_rythme.zip`
-- Handout SHA-256: `91f378e90010349718074072859706813838af6e281006528a19f941283d9c24`
-- Runtime image: local `sha256:c93ea2eda9e51dbe0f197b245d749cb3c73c5b1bc198ec36e8773a5696b451a2`
-- Backend: local Docker coordinator; checker verified 2026-08-28 UTC by Codex; hidden rsctf staging still required
-- Solver command: `python3 solution/solve.py --host TARGET --port PORT --scheme https --token CURRENT_TOKEN`
+- Handout SHA-256: `0435b353a2342f1b1e9855b97a78224fef647e06d4dbbfd2407fcb0db9a32c18`
+- Runtime image: local `sha256:3387a1e56f2bc8d562ef1efddfad649a22f34723a3ab2210e6848f0bc5cadbdd`
+- Backend: local Docker coordinator; direct private target and health verified 2026-09-04 UTC by Codex; hidden rsctf staging still required
+- Solver command: `python3 solution/solve.py --host TARGET --port PORT --scheme http --token CURRENT_TOKEN`
 - Playtest: no uncontaminated report for this candidate revision
 
 ## Summary
@@ -29,7 +29,8 @@ tokens and server-receipt timing.
 
 - The exact `reversing_rythme.zip` handout containing `Rythme.exe`, its player guide, and
   notices.
-- The issued HTTPS coordinator host and port.
+- The current private coordinator IPv4 address and port shown by RSCTF, reached through the
+  event VPN.
 - The team's current event-scoped KotH capability.
 - Public `/api/v1/config` and `/api/v1/state` responses.
 
@@ -76,9 +77,9 @@ The coordinator's in-process managed reporter submits the finalized wave as sign
 evidence. rsctf performs the final relative normalization and Crown attribution; the solver
 never calls an organizer endpoint.
 
-The stateless `gateway/` only keeps the released client's stable HTTPS origin pointed at
-the current rsctf target and blocks the private scoring route. It receives no reporter
-credential and makes no scoring decision.
+The player protocol is served directly from the current RSCTF private target. Only the
+declared TCP port is admitted through the event VPN; no public transport gateway or scoring
+route is involved.
 
 ## Solver
 
@@ -95,7 +96,7 @@ python3 -m venv .solution-venv
 .solution-venv/bin/python solution/solve.py \
   --host TARGET \
   --port PORT \
-  --scheme https \
+  --scheme http \
   --token CURRENT_TOKEN
 ```
 
@@ -121,8 +122,8 @@ settled score: 3032598
 These are text protocol and scoring results; a screenshot would not prove more than the
 retained command output.
 
-On 2026-08-28 UTC, the rebuilt coordinator reached Docker health under the CI sandbox and
-the rsctf checker returned OK through its published player port. The full reference exploit
+On 2026-09-04 UTC, the rebuilt coordinator reached Docker health through its direct player
+port and reported the expected `2026.09.04.1` build. The full reference exploit
 was not rerun against a committed hidden-staging heat, so the example scoring transcript is
 not freeze evidence for this candidate.
 

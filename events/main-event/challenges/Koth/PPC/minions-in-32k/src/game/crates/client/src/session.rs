@@ -1,8 +1,4 @@
-//! RSCTF capability exchange for the native event client.
-//!
-//! The stable KotH capability is sent only to the HTTPS gateway. The arena
-//! receives a separate per-team key, so it never handles or stores the RSCTF
-//! credential.
+//! RSCTF capability exchange with the current private managed target.
 
 use crate::ClientArgs;
 use anyhow::{bail, Context, Result};
@@ -10,6 +6,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::{
     fmt,
+    net::IpAddr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use zeroize::Zeroize;
@@ -29,7 +26,7 @@ struct ArenaSession {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GatewayProblem {
+struct ArenaProblem {
     title: Option<String>,
     status: Option<u16>,
     code: Option<String>,
@@ -90,7 +87,11 @@ pub(crate) fn resolve_capability(args: &mut ClientArgs, token: &str) -> Result<(
 
 fn exchange(args: &ClientArgs, token: &str) -> Result<ArenaSession> {
     validate_capability(token)?;
-    let endpoint = session_endpoint(&args.gateway)?;
+    let endpoint = session_endpoint(&args.server)?;
+    let target_host = endpoint
+        .host_str()
+        .context("the private RSCTF target has no host")?
+        .to_owned();
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(15))
@@ -102,7 +103,7 @@ fn exchange(args: &ClientArgs, token: &str) -> Result<ArenaSession> {
         .bearer_auth(token)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
-        .context("the event gateway is unreachable")?;
+        .context("the private RSCTF target is unreachable; check the VPN and current target IP")?;
     let status = response.status();
     let retry_after = response
         .headers()
@@ -113,29 +114,29 @@ fn exchange(args: &ClientArgs, token: &str) -> Result<ArenaSession> {
         .content_length()
         .is_some_and(|length| length > MAX_REPLY_BYTES as u64)
     {
-        bail!("the event gateway returned an oversized response");
+        bail!("the private RSCTF target returned an oversized response");
     }
     let body = response
         .bytes()
-        .context("could not read the event gateway response")?;
+        .context("could not read the private RSCTF target response")?;
     if body.len() > MAX_REPLY_BYTES {
-        bail!("the event gateway returned an oversized response");
+        bail!("the private RSCTF target returned an oversized response");
     }
     if !status.is_success() {
-        return Err(gateway_failure(
+        return Err(target_failure(
             status,
             retry_after.as_deref(),
             &body,
             unix_time_millis(),
         ));
     }
-    let session: ArenaSession =
-        serde_json::from_slice(&body).context("the event gateway returned invalid metadata")?;
-    validate_session(&session)?;
+    let session: ArenaSession = serde_json::from_slice(&body)
+        .context("the private RSCTF target returned invalid metadata")?;
+    validate_session(&session, &target_host)?;
     Ok(session)
 }
 
-fn gateway_failure(
+fn target_failure(
     status: reqwest::StatusCode,
     retry_after: Option<&str>,
     body: &[u8],
@@ -145,7 +146,7 @@ fn gateway_failure(
         return CapabilityRejected.into();
     }
 
-    let problem = serde_json::from_slice::<GatewayProblem>(body).ok();
+    let problem = serde_json::from_slice::<ArenaProblem>(body).ok();
     let valid_problem = problem
         .as_ref()
         .filter(|problem| problem.status == Some(status.as_u16()));
@@ -173,7 +174,7 @@ fn gateway_failure(
     {
         return anyhow::anyhow!("{title}");
     }
-    anyhow::anyhow!("the event gateway returned HTTP {}", status.as_u16())
+    anyhow::anyhow!("the private RSCTF target returned HTTP {}", status.as_u16())
 }
 
 fn unix_time_millis() -> i64 {
@@ -196,12 +197,17 @@ pub(crate) fn validate_capability(token: &str) -> Result<()> {
     Ok(())
 }
 
-fn session_endpoint(gateway: &str) -> Result<reqwest::Url> {
-    let mut url = reqwest::Url::parse(gateway).context("--gateway is not a valid URL")?;
+fn session_endpoint(server: &str) -> Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(server).context("--server is not a valid URL")?;
     let local_http =
         url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"));
-    if url.scheme() != "https" && !local_http {
-        bail!("--gateway must use HTTPS");
+    let private_vpn_http = url.scheme() == "http"
+        && url
+            .host_str()
+            .and_then(|host| host.parse::<IpAddr>().ok())
+            .is_some_and(|address| matches!(address, IpAddr::V4(value) if value.is_private()));
+    if !local_http && !private_vpn_http {
+        bail!("--server must use HTTP with a private VPN IPv4 address");
     }
     if url.host_str().is_none()
         || !url.username().is_empty()
@@ -210,26 +216,34 @@ fn session_endpoint(gateway: &str) -> Result<reqwest::Url> {
         || url.fragment().is_some()
         || !matches!(url.path(), "" | "/")
     {
-        bail!("--gateway must be an origin without credentials, path, query, or fragment");
+        bail!("--server must be an origin without credentials, path, query, or fragment");
     }
     url.set_path("/api/v1/arena-session");
     Ok(url)
 }
 
-fn validate_session(session: &ArenaSession) -> Result<()> {
+fn validate_session(session: &ArenaSession, target_host: &str) -> Result<()> {
     if session.protocol != "minions/0" {
-        bail!("the event gateway selected an incompatible arena protocol");
+        bail!("the private RSCTF target selected an incompatible arena protocol");
     }
     let remote = reqwest::Url::parse(&format!("udp://{}/", session.remote))
-        .context("the event gateway returned an invalid arena address")?;
-    if remote.host_str().is_none()
-        || remote.port().is_none()
+        .context("the private RSCTF target returned an invalid arena address")?;
+    let remote_host = remote
+        .host_str()
+        .and_then(|host| host.parse::<IpAddr>().ok());
+    let target_address = target_host.parse::<IpAddr>().ok();
+    if remote_host.is_none()
+        || remote_host != target_address
+        || !remote_host.is_some_and(|address| {
+            matches!(address, IpAddr::V4(value) if value.is_private() || value.is_loopback())
+        })
+        || remote.port() != Some(8080)
         || !remote.username().is_empty()
         || remote.password().is_some()
         || remote.query().is_some()
         || remote.fragment().is_some()
     {
-        bail!("the event gateway returned an invalid arena address");
+        bail!("the private RSCTF target returned an invalid arena address");
     }
     if session.name.is_empty()
         || session.name.len() > 64
@@ -242,7 +256,7 @@ fn validate_session(session: &ArenaSession) -> Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit())
     {
-        bail!("the event gateway returned invalid arena credentials");
+        bail!("the private RSCTF target returned invalid arena credentials");
     }
     Ok(())
 }
@@ -254,7 +268,7 @@ mod tests {
     fn valid_session() -> ArenaSession {
         ArenaSession {
             protocol: "minions/0".into(),
-            remote: "tcp.1pc.tf:4532".into(),
+            remote: "10.13.41.3:8080".into(),
             name: "team alpha".into(),
             key: "a".repeat(48),
             cert_hash: "0123456789abcdef".repeat(4),
@@ -263,33 +277,42 @@ mod tests {
 
     #[test]
     fn accepts_canonical_session() {
-        validate_session(&valid_session()).unwrap();
+        validate_session(&valid_session(), "10.13.41.3").unwrap();
     }
 
     #[test]
     fn rejects_unpinned_or_malformed_session() {
         let mut session = valid_session();
         session.cert_hash.clear();
-        assert!(validate_session(&session).is_err());
+        assert!(validate_session(&session, "10.13.41.3").is_err());
 
         let mut session = valid_session();
-        session.remote = "tcp.1pc.tf".into();
-        assert!(validate_session(&session).is_err());
+        session.remote = "10.13.41.3".into();
+        assert!(validate_session(&session, "10.13.41.3").is_err());
 
         let mut session = valid_session();
         session.protocol = "M32/3".into();
-        assert!(validate_session(&session).is_err());
+        assert!(validate_session(&session, "10.13.41.3").is_err());
+
+        let mut session = valid_session();
+        session.remote = "10.13.41.4:8080".into();
+        assert!(validate_session(&session, "10.13.41.3").is_err());
+
+        let mut session = valid_session();
+        session.remote = "10.13.41.3:4433".into();
+        assert!(validate_session(&session, "10.13.41.3").is_err());
     }
 
     #[test]
-    fn gateway_rejects_non_tls_and_paths() {
+    fn target_origin_allows_only_private_vpn_http() {
         assert!(session_endpoint("http://example.com").is_err());
         assert!(session_endpoint("https://example.com/not-an-origin").is_err());
-        assert_eq!(
-            session_endpoint("https://example.com").unwrap().as_str(),
-            "https://example.com/api/v1/arena-session"
-        );
+        assert!(session_endpoint("https://example.com").is_err());
         assert!(session_endpoint("http://127.0.0.1:8080").is_ok());
+        assert!(session_endpoint("http://10.13.41.3:8080").is_ok());
+        assert!(session_endpoint("http://172.16.2.4:8080").is_ok());
+        assert!(session_endpoint("http://192.168.4.8:8080").is_ok());
+        assert!(session_endpoint("http://8.8.8.8:8080").is_err());
     }
 
     #[test]
@@ -306,7 +329,7 @@ mod tests {
         let body = format!(
             r#"{{"title":"Crown reset protection is active","detail":"wait","status":409,"code":"arena_window_pending","retryAtUnixMs":{retry_at}}}"#
         );
-        let error = gateway_failure(
+        let error = target_failure(
             reqwest::StatusCode::CONFLICT,
             Some("1"),
             body.as_bytes(),
@@ -319,7 +342,7 @@ mod tests {
     #[test]
     fn legacy_retry_after_remains_compatible() {
         let now = 1_000_000_i64;
-        let error = gateway_failure(
+        let error = target_failure(
             reqwest::StatusCode::CONFLICT,
             Some("30"),
             br#"{"title":"arena reset is imminent; retry after the next crown reset","status":409}"#,
@@ -335,7 +358,7 @@ mod tests {
             r#"{{"title":"Try later","status":409,"code":"arena_window_pending","retryAtUnixMs":{}}}"#,
             now + (MAX_RETRY_SECONDS as i64 + 1) * 1_000
         );
-        let error = gateway_failure(
+        let error = target_failure(
             reqwest::StatusCode::CONFLICT,
             Some("999999"),
             body.as_bytes(),
@@ -347,7 +370,7 @@ mod tests {
 
     #[test]
     fn rejected_capability_is_distinct_from_a_transient_failure() {
-        let error = gateway_failure(reqwest::StatusCode::UNAUTHORIZED, None, b"{}", 0);
+        let error = target_failure(reqwest::StatusCode::UNAUTHORIZED, None, b"{}", 0);
         assert!(token_was_rejected(&error));
         assert_eq!(retry_at_unix_ms(&error), None);
     }

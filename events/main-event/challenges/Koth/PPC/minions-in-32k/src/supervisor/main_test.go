@@ -76,29 +76,6 @@ func TestBoundedIntegerAndBearerParsing(t *testing.T) {
 	}
 }
 
-func TestPublicRemoteValidationDoesNotRequireDNS(t *testing.T) {
-	for _, value := range []string{
-		"does-not-resolve.invalid:4532",
-		"127.0.0.1:4532",
-		"[2001:db8::1]:4532",
-	} {
-		if !validRemote(value) {
-			t.Fatalf("valid remote %q was rejected", value)
-		}
-	}
-	for _, value := range []string{
-		"missing-port.invalid",
-		"bad host.invalid:4532",
-		"-bad.invalid:4532",
-		"example.invalid:0",
-		"example.invalid:65536",
-	} {
-		if validRemote(value) {
-			t.Fatalf("invalid remote %q was accepted", value)
-		}
-	}
-}
-
 func TestBotRosterRequiresDistinctArenaKeysAndOneHuman(t *testing.T) {
 	players := `[{"key":"human"},{"key":"npc-1"},{"key":"npc-2"}]`
 	if count, err := validateBotRoster(players, "npc-1,npc-2", 2); err != nil || count != 3 {

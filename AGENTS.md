@@ -78,11 +78,13 @@ both KotH checkers receive no flag and never inspect or alter their claim source
   Its initramfs has no interactive serial shell and keeps PID 1 alive with a five-second
   sleep loop. It has no gateway or managed reporter.
 - `Rythme` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact ZIP;
-  the rsctf-managed coordinator reports native evidence in process, while `gateway/` only
-  keeps its stable HTTPS hostname pointed at the current target.
+  the rsctf-managed coordinator reports native evidence in process and players connect to
+  its current private IPv4 target through the event VPN on the declared TCP port. It has no
+  gateway.
 - `Minions in 32K` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
-  ZIP; the rsctf target owns identity, match validation, and scoring evidence, while the
-  separately deployed `gateway/` only adapts HTTPS and UDP transport.
+  ZIP; the rsctf target owns identity, match validation, and scoring evidence. Its HTTP
+  session API and QUIC gameplay use TCP and UDP on the same declared port at the current
+  private IPv4 target. It has no gateway.
 - `Tower of Babel` is a hybrid, shared Leaderboard KotH challenge. Players receive the exact
   TCP/TUI ZIP handout; the target owns authenticated four-architecture relay validation, one bounded
   `babel-mastery` row per authenticated team in each finalized wave, and first-solver-owned

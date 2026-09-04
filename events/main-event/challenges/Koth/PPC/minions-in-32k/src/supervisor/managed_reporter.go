@@ -181,37 +181,6 @@ func positiveEnvironmentInteger(name string) (int, error) {
 	return value, nil
 }
 
-func validRemote(value string) bool {
-	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
-	if err != nil || !validRemoteHost(host) {
-		return false
-	}
-	port, err := strconv.Atoi(portText)
-	return err == nil && port > 0 && port <= 65535
-}
-
-func validRemoteHost(host string) bool {
-	if net.ParseIP(host) != nil {
-		return true
-	}
-	if host == "" || len(host) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, character := range label {
-			if !(character >= 'a' && character <= 'z') &&
-				!(character >= 'A' && character <= 'Z') &&
-				!(character >= '0' && character <= '9') && character != '-' {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 func newManagedReporter(cfg managedReporterConfig, reportToken string, game *arena) *managedReporter {
 	return &managedReporter{
 		cfg: cfg, reportToken: reportToken, arena: game,
@@ -231,6 +200,11 @@ func newManagedReporter(cfg managedReporterConfig, reportToken string, game *are
 func (a *arena) createSession(w http.ResponseWriter, request *http.Request) {
 	if body, err := readLimited(w, request, 1); err != nil || len(body) != 0 {
 		problem(w, http.StatusBadRequest, "session request must have an empty body")
+		return
+	}
+	remote, ok := directArenaRemote(request.Host)
+	if !ok {
+		problem(w, http.StatusBadRequest, "session requests require the private RSCTF target address")
 		return
 	}
 	if a.reporter == nil {
@@ -295,9 +269,21 @@ func (a *arena) createSession(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(arenaSession{
-		Protocol: "minions/0", Remote: a.cfg.publicRemote, Name: credential.Name,
+		Protocol: "minions/0", Remote: remote, Name: credential.Name,
 		Key: credential.Key, CertHash: certHash,
 	})
+}
+
+func directArenaRemote(requestHost string) (string, bool) {
+	host, _, err := net.SplitHostPort(requestHost)
+	if err != nil {
+		host = requestHost
+	}
+	address := net.ParseIP(strings.Trim(host, "[]"))
+	if address == nil || address.To4() == nil || (!address.IsPrivate() && !address.IsLoopback()) {
+		return "", false
+	}
+	return net.JoinHostPort(address.String(), strconv.Itoa(arenaPort)), true
 }
 
 func (a *arena) credentialForToken(tokenHash string) (arenaCredential, bool) {

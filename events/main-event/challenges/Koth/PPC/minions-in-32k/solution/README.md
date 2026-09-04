@@ -8,9 +8,9 @@
 - Revision: working tree; freeze only after the committed rsctf layout is reproduced
 - Challenge type: `KingOfTheHill`, managed Leaderboard evidence
 - Delivery: hybrid shared service and `dist/game_minions-in-32k.zip`
-- Handout SHA-256: `6fd7624e24b75b12fc95dcdee18a4ce75b9d54e0509f39a5694f173b3c0c980e`
-- Runtime image: local `sha256:39922f87a75befe1870fc61d608570ef4d80ee402949040227a377ccedc6f1b5`
-- Backend: local Docker arena; checked 2026-08-28 UTC by Codex; hidden rsctf managed-reporting and gateway rehearsal still required
+- Handout SHA-256: `25f164e54aff5df40bf3637b2935de863b747fd094faada11aeb482f4500d1a4`
+- Runtime image: local `sha256:1e8b334a532c875ce27cc699bb41e9872699af5c4722e7677e039e114bb2bd76`
+- Backend: local Docker arena; direct TCP/UDP verified 2026-09-04 UTC by Codex; hidden-staging rehearsal still required
 - Solver command: `python3 solution/solve.py --host TARGET --port UDP_PORT --key ARENA_KEY --cert-hash CERT_SHA256`
 - Playtest: no uncontaminated report for this candidate revision
 
@@ -30,13 +30,12 @@ objective-aware navigation, and player-driven combat.
 - The exact `game_minions-in-32k.zip` handout with Linux and Windows clients, notices,
   licenses, and corresponding public source.
 - The public challenge description and secure event lobby.
-- The team's current KotH capability, passed through the transport gateway and exchanged by
-  the managed target for an arena key and pinned certificate hash.
-- The gateway's issued UDP endpoint.
+- The current private target IPv4 address shown by RSCTF and the event VPN profile.
+- The team's current KotH capability, exchanged directly with the managed target for an
+  arena key and pinned certificate hash.
 
 The player does not receive the managed reporter credential, internal child-report
-authenticator, another team's key, or the organizer reference client. The stateless gateway
-has none of those values.
+authenticator, another team's key, or the organizer reference client.
 
 ## Walkthrough
 
@@ -63,9 +62,9 @@ that authoritative transition.
 The target receives a lifecycle-bound rsctf reporter credential and generates a short-lived
 TLS identity at startup. Its supervisor authenticates event-scoped KotH capabilities,
 derives deterministic per-target arena credentials for the eligible hashes, validates child
-reports and replays, excludes NPC rows, and submits signed native wave evidence. The
-separately deployed gateway only forwards the capability request and relays encrypted UDP;
-it owns no roster or scoring state.
+reports and replays, excludes NPC rows, and submits signed native wave evidence. Its HTTP
+session route and QUIC game server use TCP and UDP on the same declared port; RSCTF admits
+that exact private target endpoint through the event VPN.
 
 ## Solver
 
@@ -102,10 +101,10 @@ kill confirmed
 [+] Observed kill confirmed
 ```
 
-On 2026-08-28 UTC, the rebuilt image reached Docker health under the CI sandbox, the rsctf
-checker returned OK through its published HTTP port, and the documented solver observed a
-fresh authoritative confirmation through the published UDP port. The writeup remains draft
-because that local run is not a committed hidden-staging rehearsal.
+On 2026-09-04 UTC, the rebuilt image reached Docker health with TCP and UDP both published on
+port 8080. The rsctf checker returned OK through HTTP, and the documented solver observed a
+fresh authoritative confirmation through QUIC/UDP on the same port. The writeup remains
+draft because that local run is not a committed hidden-staging rehearsal.
 
 The service and solver expose text/network evidence; a screenshot would be decorative and is
 not retained.
@@ -113,7 +112,7 @@ not retained.
 ## Notes
 
 - Keep the writeup `draft` until the exact committed image and handout are reproduced by a
-  second maintainer and managed reporting plus the gateway complete a multi-team
+  second maintainer and direct private TCP/UDP managed reporting completes a multi-team
   hidden-staging rehearsal, including credential rotation on target reset.
 - The headless reference client is organizer regression tooling. Event policy requires a
   player-driven match; unattended automation is not scoring-eligible evidence.

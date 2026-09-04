@@ -49,8 +49,8 @@ The current packages are examples of this repository's actual delivery model:
 | `events/main-event/challenges/AD/Pwn/yani-netlink/` | self-hosted/BYOC x86-64 kernel image, TCP/UDP relay, rotating flag, read-only checker, incomplete source snippet | a kernel challenge must stay alive without an interactive guest shell |
 | `events/warmup/challenges/Koth/Web/draft-control/` | shared marker/Boot2Root hill with an atomic `/koth/king` control path | control is exclusive and proven by placing the current KotH capability in the marker |
 | `events/warmup/challenges/Koth/PPC/serpent-circuit/` | shared multiplayer browser/API game, fair FIFO matchmaking, read-only checker, in-process managed reporter | exactly four authenticated teams are assigned per five-minute match; one match runs at a time and each completed active tick produces one bounded furthest-progress row per team |
-| `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, HTTPS gateway | a Leaderboard KotH coordinator owns its native evidence but needs a stable public origin |
-| `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, optional transport gateway | a managed target reports evidence but needs HTTPS/UDP adaptation |
+| `events/main-event/challenges/Koth/Reverse/rythme/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, direct private TCP | players use the current RSCTF target through the event VPN |
+| `events/main-event/challenges/Koth/PPC/minions-in-32k/` | hybrid shared service, player ZIP, read-only checker, in-process managed reporter, direct private TCP/UDP | metadata and QUIC gameplay share the declared target port |
 | `events/main-event/challenges/Koth/Pwn/tower-of-babel/` | hybrid shared TCP service, ZIP handout with terminal lobby, read-only checker, in-process managed reporter | four-architecture shellcode relay with bounded next-wave ward patches; direct TCP needs no gateway |
 
 These are mode-specific examples, not interchangeable templates. For a new mode, use the

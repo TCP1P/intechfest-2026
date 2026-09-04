@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 
 namespace osu.Desktop.Rythme
 {
@@ -8,9 +9,9 @@ namespace osu.Desktop.Rythme
         private readonly object tokenGate = new object();
         private string authenticatedToken = string.Empty;
 
-        public static readonly Uri ProductionServer = new Uri("https://rythme-private.tcp.1pc.tf/");
+        public static readonly Uri ProductionServer = new Uri("http://127.0.0.1:1337/");
 
-        public Uri Server { get; private init; } = ProductionServer;
+        public Uri Server { get; private set; } = ProductionServer;
 
         public string Token { get; private set; } = string.Empty;
 
@@ -60,14 +61,8 @@ namespace osu.Desktop.Rythme
                 }
             }
 
-            if (!server.EndsWith('/'))
-                server += "/";
-
-            if (!Uri.TryCreate(server, UriKind.Absolute, out Uri? serverUri) ||
-                (serverUri.Scheme != Uri.UriSchemeHttp && serverUri.Scheme != Uri.UriSchemeHttps))
-                throw new ArgumentException("The coordinator must be an absolute HTTP(S) URL.");
-            if (serverUri.Scheme == Uri.UriSchemeHttp && !serverUri.IsLoopback)
-                throw new ArgumentException("Remote coordinators require HTTPS.");
+            if (!tryParseServer(server, out Uri serverUri, out string error))
+                throw new ArgumentException(error);
 
             return new RythmeOptions
             {
@@ -75,6 +70,52 @@ namespace osu.Desktop.Rythme
                 Token = token,
                 AutoJoin = autoJoin,
             };
+        }
+
+        public bool TrySetServer(string value, out string error)
+        {
+            if (!tryParseServer(value, out Uri server, out error))
+                return false;
+            Server = server;
+            return true;
+        }
+
+        private static bool tryParseServer(string value, out Uri server, out string error)
+        {
+            value = value.Trim();
+            if (!value.EndsWith('/'))
+                value += "/";
+            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? parsed) ||
+                parsed.Scheme != Uri.UriSchemeHttp ||
+                !string.IsNullOrEmpty(parsed.UserInfo) ||
+                parsed.AbsolutePath != "/" ||
+                !string.IsNullOrEmpty(parsed.Query) ||
+                !string.IsNullOrEmpty(parsed.Fragment))
+            {
+                server = ProductionServer;
+                error = "Enter one target origin, for example http://10.13.41.3:1337/.";
+                return false;
+            }
+            if (!parsed.IsLoopback && !isPrivateIPv4(parsed.Host))
+            {
+                server = ProductionServer;
+                error = "The target must be a private IPv4 address reached through the event VPN.";
+                return false;
+            }
+            server = parsed;
+            error = string.Empty;
+            return true;
+        }
+
+        private static bool isPrivateIPv4(string host)
+        {
+            if (!IPAddress.TryParse(host, out IPAddress? address) ||
+                address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                return false;
+            byte[] bytes = address.GetAddressBytes();
+            return bytes[0] == 10 ||
+                   (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+                   (bytes[0] == 192 && bytes[1] == 168);
         }
 
         public string TakeToken()

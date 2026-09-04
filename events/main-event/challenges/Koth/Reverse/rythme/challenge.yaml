@@ -4,16 +4,16 @@ author: "dimasma0305"
 description: |
   Rythme is Syncore's live Crown qualifier. Every crew receives the same
   surprise track, discipline, and synchronized start. Download the supplied
-  client, complete a fresh server-timed heat, and take the recurring Crown
-  before the current owner locks in another payout.
+  client, connect the event VPN, enter the current private target shown by
+  RSCTF, complete a fresh server-timed heat, and take the recurring Crown.
 type: KingOfTheHill
 category: Reverse
 disableBloodBonus: true
 provide: dist/reversing_rythme.zip
 
 container:
-  # Repository Bindings builds the coordinator from src/Dockerfile. The stable
-  # player-facing HTTPS origin is operated separately from gateway/.
+  # Repository Bindings builds the coordinator from src/Dockerfile. Players
+  # reach this declared TCP port directly through the event VPN.
   memoryLimit: 512
   cpuCount: 2
   exposePort: 1337

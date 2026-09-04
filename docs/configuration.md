@@ -276,8 +276,8 @@ dependency and all base images for a completely Docker-Hub-free deployment.
 | self-hosted/BYOC `AttackDefense`, built kernel image | [`AD/Pwn/yani-netlink`](../events/main-event/challenges/AD/Pwn/yani-netlink/) |
 | marker/Boot2Root `KingOfTheHill` | [`Koth/Web/draft-control`](../events/warmup/challenges/Koth/Web/draft-control/) |
 | managed-reporting `KingOfTheHill`, direct browser/API game | [`Koth/PPC/serpent-circuit`](../events/warmup/challenges/Koth/PPC/serpent-circuit/) |
-| managed-reporting `KingOfTheHill`, in-process coordinator with transport gateway | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |
-| managed-reporting `KingOfTheHill`, transport gateway | [`Koth/PPC/minions-in-32k`](../events/main-event/challenges/Koth/PPC/minions-in-32k/) |
+| managed-reporting `KingOfTheHill`, direct private TCP coordinator | [`Koth/Reverse/rythme`](../events/main-event/challenges/Koth/Reverse/rythme/) |
+| managed-reporting `KingOfTheHill`, direct private TCP/UDP arena | [`Koth/PPC/minions-in-32k`](../events/main-event/challenges/Koth/PPC/minions-in-32k/) |
 
 The field reference above covers other rsctf types, but these packages remain specific to
 their delivery and claim contracts. For deterministic variants and

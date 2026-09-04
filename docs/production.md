@@ -1,6 +1,6 @@
 # Main-event production release contract
 
-Release candidate: `2026.08.28.1`
+Release candidate: `2026.09.04.1`
 
 This frozen release candidate covers only the INTECHFEST main event. The hidden warmup is
 still an unfrozen staging candidate; record its BYOC, Marker, and managed Leaderboard
@@ -14,8 +14,8 @@ committed.
 
 | Challenge | File | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| Rythme | `events/main-event/challenges/Koth/Reverse/rythme/dist/reversing_rythme.zip` | 165891448 | `91f378e90010349718074072859706813838af6e281006528a19f941283d9c24` |
-| Minions in 32K | `events/main-event/challenges/Koth/PPC/minions-in-32k/dist/game_minions-in-32k.zip` | 37848231 | `6fd7624e24b75b12fc95dcdee18a4ce75b9d54e0509f39a5694f173b3c0c980e` |
+| Rythme | `events/main-event/challenges/Koth/Reverse/rythme/dist/reversing_rythme.zip` | 165890588 | `0435b353a2342f1b1e9855b97a78224fef647e06d4dbbfd2407fcb0db9a32c18` |
+| Minions in 32K | `events/main-event/challenges/Koth/PPC/minions-in-32k/dist/game_minions-in-32k.zip` | 37844249 | `25f164e54aff5df40bf3637b2935de863b747fd094faada11aeb482f4500d1a4` |
 
 Each package's `solution/handout.sha256` is authoritative. Publish the archives by content
 hash and verify both the stored content length and digest before binding an attachment to a
@@ -38,25 +38,23 @@ Dockerfile joins them into the read-only `/opt/yani/vmlinux.unstripped` path.
 
 ## Runtime topology
 
-Rythme is one rsctf-managed shared coordinator plus one stateless HTTPS gateway.
-The coordinator owns gameplay,
+Rythme is one rsctf-managed shared coordinator. The coordinator owns gameplay,
 health, its finalized-wave ledger, and managed evidence reporting; there is no
 duplicate health-only target or private scoring endpoint. rsctf injects exact
 context/observation URLs and a lifecycle-bound credential when it creates the
 active managed Leaderboard target. The coordinator filters the credential out of player
-responses and submits native heat evidence, never platform points. The gateway
-keeps the released client's stable hostname pointed at the current target. The
-target exposes no scoring endpoint, and the gateway also denies the retired path as
-a compatibility defense; it has no scoring state or credential.
+responses and submits native heat evidence, never platform points. Players use the current
+private IPv4 target through the event VPN on the declared TCP port. A target reset may change
+that address, so the challenge card remains the authoritative source.
 
-Minions is one rsctf-managed shared arena target plus one stateless transport
-gateway. The supervisor authenticates event capabilities, deterministically
+Minions is one rsctf-managed shared arena target. The supervisor authenticates event
+capabilities, deterministically
 builds the eligible roster, starts the child game server, validates ordered
 match/replay evidence, and reports it directly to rsctf. It filters every
 `RSCTF_KOTH_*` value from the child environment and passes only a
-domain-separated loopback report credential. The gateway terminates public
-HTTPS metadata/session traffic and relays bounded UDP sessions to the current
-target. It has no secret volume, roster, replay, or scoring state.
+domain-separated loopback report credential. The HTTP session API and QUIC gameplay bind
+TCP and UDP on the same declared target port. RSCTF permits those two protocols only for the
+current private target, and players reach both through the event VPN.
 
 Minions has exactly eight arena slots. The main event must freeze no more than
 eight accepted teams before official KotH scoring starts; unused slots become
@@ -72,10 +70,9 @@ includes an incomplete source snippet with only `EAT`, `PUKE`, and `SMOKING`, pl
 `/tmp/yani` so the service also passes a read-only Docker health run.
 
 Set `RSCTF_KOTH_REPORTER_BASE_URL` to the private control-service origin before
-enabling Leaderboard scoring. Both gateway Compose files use a read-only
-filesystem, non-root user, dropped capabilities, `no-new-privileges`, bounded
-CPU/memory/PIDs and logs, a health check, and only the A&D-services plus Traefik
-networks.
+enabling Leaderboard scoring. The runtime images use a read-only filesystem, non-root user,
+dropped capabilities, `no-new-privileges`, bounded CPU/memory/PIDs and logs, and a health
+check. No separate public transport service is required.
 
 ## Release gates
 
@@ -86,7 +83,6 @@ make check RSCTF=/path/to/rsctf
 gitleaks git --staged --config .gitleaks.toml .
 
 (cd events/main-event/challenges/Koth/Reverse/rythme/src/server && go test -race ./... && go vet ./...)
-(cd events/main-event/challenges/Koth/Reverse/rythme/gateway && go test -race ./... && go vet ./...)
 (cd events/main-event/challenges/Koth/Reverse/rythme/checker && python3 -m unittest test_run.py)
 
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/src/game && cargo +1.96.0 fmt --all -- --check)
@@ -95,14 +91,13 @@ gitleaks git --staged --config .gitleaks.toml .
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/src/game && cargo +1.96.0 run --locked --release -p sim --example verify_scenes)
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/src/game && cargo audit)
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/src/supervisor && go test -race ./... && go vet ./...)
-(cd events/main-event/challenges/Koth/PPC/minions-in-32k/gateway && go test -race ./... && go vet ./...)
 (cd events/main-event/challenges/Koth/PPC/minions-in-32k/checker && python3 -m unittest test_run.py)
 (cd events/main-event/challenges/AD/Pwn/yani-netlink/checker && python3 -m unittest test_run.py)
 ```
 
 Run both `build-release.sh` scripts, validate the ZIP central directories, and
-check the adjacent checksum files. Build runtime and gateway images with
-`SOURCE_REVISION=<committed SHA>` and `*_VERSION=2026.08.28.1`; deploy only
+check the adjacent checksum files. Build runtime images with
+`SOURCE_REVISION=<committed SHA>` and `*_VERSION=2026.09.04.1`; deploy only
 their full `sha256:` image IDs.
 
 ## Promotion and rollback
@@ -114,7 +109,7 @@ healthy challenge replicas on the expected image IDs, live checker passes, one
 real capability exchange per challenge, one accepted native-evidence snapshot,
 a reset proving the old target credential is stale, and clean recent logs.
 
-Rollback means restoring the previous immutable target and gateway image IDs.
+Rollback means restoring the previous immutable target image IDs.
 A platform target reset starts a new scoring lifecycle and rotates the managed
 credential. An interrupted Rythme heat is intentionally void; the new target
 starts a fresh four-mode series. Do not reuse an old target or manually copy a

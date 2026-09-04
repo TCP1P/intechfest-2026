@@ -14,7 +14,7 @@ RULESETS = {"osu", "taiko", "fruits", "mania"}
 PHASES = ("enrollment", "reveal", "running", "submission", "results")
 HEX_64 = re.compile(r"^[0-9a-fA-F]{64}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-EXPECTED_BUILD = "2026.08.28.1"
+EXPECTED_BUILD = "2026.09.04.1"
 
 
 def get_json(host: str, port: int, path: str) -> dict:

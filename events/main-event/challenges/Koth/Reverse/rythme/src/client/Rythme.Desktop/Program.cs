@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 
 namespace Rythme.Desktop;
 
@@ -309,12 +310,14 @@ internal sealed record Arguments(
         }
 
         string serverValue = Value("--server") ?? Environment.GetEnvironmentVariable("RYTHME_SERVER")
-                             ?? "https://rythme-private.tcp.1pc.tf/";
+                             ?? "http://127.0.0.1:1337/";
         if (!Uri.TryCreate(serverValue, UriKind.Absolute, out Uri? server) ||
-            server.Scheme is not ("http" or "https"))
-            throw new ArgumentException("--server must be an absolute HTTP(S) URL.");
-        if (server.Scheme == "http" && !server.IsLoopback)
-            throw new ArgumentException("--server requires HTTPS for non-loopback coordinators.");
+            server.Scheme != Uri.UriSchemeHttp || !string.IsNullOrEmpty(server.UserInfo) ||
+            server.AbsolutePath != "/" || !string.IsNullOrEmpty(server.Query) ||
+            !string.IsNullOrEmpty(server.Fragment))
+            throw new ArgumentException("--server must be one HTTP target origin.");
+        if (!server.IsLoopback && !IsPrivateIPv4(server.Host))
+            throw new ArgumentException("--server must be a private IPv4 target reached through the event VPN.");
 
         return new Arguments(
             command.ToLowerInvariant(),
@@ -327,5 +330,16 @@ internal sealed record Arguments(
             Value("--mod"));
 
         string? Value(string key) => values.GetValueOrDefault(key);
+
+        static bool IsPrivateIPv4(string host)
+        {
+            if (!IPAddress.TryParse(host, out IPAddress? address) ||
+                address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                return false;
+            byte[] bytes = address.GetAddressBytes();
+            return bytes[0] == 10 ||
+                   (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+                   (bytes[0] == 192 && bytes[1] == 168);
+        }
     }
 }

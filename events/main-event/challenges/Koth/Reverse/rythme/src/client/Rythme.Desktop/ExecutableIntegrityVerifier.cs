@@ -12,8 +12,8 @@ internal static class ExecutableIntegrityVerifier
     private const int protectedBodyBlockLength = protectedBodyCount * protectedBodyDigestLength;
     private const int trailerLength = protectedBodyBlockLength + signatureLength + sizeof(long) + 16;
     private const string publicKeySpki =
-        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQYbd3oQuTol0gD3AYtVNZJq05pQG" +
-        "W52GteAFEhqSN+FjTwee13ort1Nj1S4m9fm86H2tjQEJD/SNlEFUSsAgDw==";
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeU3vq8ylfTWRHy5yx/s5dgefXb/S" +
+        "gKwdg9l4DtyvZh6nQLNuyJVX72Hiv8y5qBXEtMLTqKYfMOQFYb7afcxVnA==";
 
     private static readonly byte[] trailerMagic =
     [

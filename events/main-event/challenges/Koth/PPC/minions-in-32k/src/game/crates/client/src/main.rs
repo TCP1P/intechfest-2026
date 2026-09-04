@@ -2,11 +2,11 @@ mod channels;
 mod config;
 mod demo;
 #[cfg(not(target_arch = "wasm32"))]
-mod gateway;
-#[cfg(not(target_arch = "wasm32"))]
 mod net;
 #[cfg(target_arch = "wasm32")]
 mod net_wasm;
+#[cfg(not(target_arch = "wasm32"))]
+mod session;
 
 use bevy::animation::graph::AnimationNodeIndex;
 #[cfg(not(target_arch = "wasm32"))]
@@ -40,13 +40,9 @@ pub struct ClientArgs {
     /// Stable RSCTF KotH capability. Exchanges once for short arena credentials.
     #[arg(long, conflicts_with_all = ["demo", "remote", "key", "instance_id", "cert_hash"])]
     pub token: Option<String>,
-    /// Trusted RSCTF arena gateway used by the lobby or with --token.
-    #[arg(
-        long,
-        default_value = "https://minions-private.tcp.1pc.tf",
-        requires = "token"
-    )]
-    pub gateway: String,
+    /// Current private RSCTF target origin shown on the challenge page.
+    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    pub server: String,
     /// Connect to a remote game server at `host:port`.
     #[arg(long, conflicts_with = "demo")]
     pub remote: Option<String>,
@@ -102,6 +98,14 @@ mod cli_tests {
     }
 
     #[test]
+    fn private_target_can_be_selected_before_pasting_the_token() {
+        let args =
+            ClientArgs::try_parse_from(["client", "--server", "http://10.13.41.3:8080"]).unwrap();
+        assert_eq!(args.resolved_mode(), ClientMode::Lobby);
+        assert_eq!(args.server, "http://10.13.41.3:8080");
+    }
+
+    #[test]
     fn offline_demo_remains_explicitly_available() {
         let args = ClientArgs::try_parse_from(["client", "--demo"]).unwrap();
         assert_eq!(args.resolved_mode(), ClientMode::Demo);
@@ -133,7 +137,7 @@ mod cli_tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn transient_gateway_attempt_keeps_the_lobby_token_for_retry() {
+    fn transient_target_attempt_keeps_the_lobby_token_for_retry() {
         let args = ClientArgs::try_parse_from(["client"]).unwrap();
         let token = LobbyToken("koth_team-capability-123456".into());
         let request = lobby_request_args(&args, &token);
@@ -630,7 +634,7 @@ fn main() {
     let initial_lobby_token = take_lobby_token(&mut args);
     #[cfg(not(target_arch = "wasm32"))]
     if !initial_lobby_token.0.is_empty() {
-        if let Err(error) = gateway::resolve_capability(&mut args, &initial_lobby_token.0) {
+        if let Err(error) = session::resolve_capability(&mut args, &initial_lobby_token.0) {
             eprintln!("Minions in 32K could not join the event: {error}");
             std::process::exit(2);
         }
@@ -640,7 +644,7 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     let args = ClientArgs {
         token: None,
-        gateway: String::new(),
+        server: String::new(),
         remote: match (net_wasm::query("host"), net_wasm::query("port")) {
             (Some(h), Some(p)) if !h.is_empty() && !p.is_empty() => Some(format!("{h}:{p}")),
             _ => None,
@@ -3266,7 +3270,7 @@ fn lobby_enter(mut commands: Commands, token: Res<LobbyToken>, mut status: ResMu
                     },
                 ));
                 panel.spawn(TextBundle::from_section(
-                    "Copy your team KotH token from the challenge page, then paste it here. The token is exchanged over HTTPS and is never sent to the arena server.",
+                    "Copy your team KotH token from the challenge page, then paste it here. Start the client with --server and the current private target shown by RSCTF.",
                     TextStyle {
                         font_size: 17.0,
                         color: Color::srgb(0.82, 0.84, 0.90),
@@ -3417,7 +3421,7 @@ fn paste_lobby_token(token: &mut LobbyToken, status: &mut LobbyStatus) {
         Ok(mut raw) => {
             let candidate = raw.trim().to_owned();
             raw.zeroize();
-            if let Err(error) = gateway::validate_capability(&candidate) {
+            if let Err(error) = session::validate_capability(&candidate) {
                 let mut candidate = candidate;
                 candidate.zeroize();
                 status.message = format!("Could not paste token: {error}");
@@ -3459,7 +3463,7 @@ fn begin_lobby_exchange(
         return;
     }
     status.retry_at_unix_ms = None;
-    if let Err(error) = gateway::validate_capability(&token.0) {
+    if let Err(error) = session::validate_capability(&token.0) {
         status.message = format!("Cannot connect: {error}");
         status.tone = LobbyStatusTone::Error;
         return;
@@ -3468,17 +3472,17 @@ fn begin_lobby_exchange(
     let mut request_args = lobby_request_args(args, token);
     let tx = exchange.tx.clone();
     exchange.pending = true;
-    status.message = "Verifying token and requesting a private arena session...".into();
+    status.message = "Verifying token with the private RSCTF target...".into();
     status.tone = LobbyStatusTone::Busy;
 
     if std::thread::Builder::new()
-        .name("event-gateway".into())
+        .name("event-target".into())
         .spawn(move || {
-            let outcome = gateway::resolve(&mut request_args)
+            let outcome = session::resolve(&mut request_args)
                 .map(|()| request_args)
                 .map_err(|error| GatewayFailure {
-                    retry_at_unix_ms: gateway::retry_at_unix_ms(&error),
-                    token_rejected: gateway::token_was_rejected(&error),
+                    retry_at_unix_ms: session::retry_at_unix_ms(&error),
+                    token_rejected: session::token_was_rejected(&error),
                     message: error.to_string(),
                 });
             let _ = tx.send(outcome);
