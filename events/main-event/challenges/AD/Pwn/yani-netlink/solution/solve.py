@@ -9,14 +9,41 @@ import struct
 PORT = 31337
 TIMEOUT = 5.0
 MAX_RESPONSE = 4096
-BANNER = b"YANINEKO  /\\_/\\\\  (=^.^=)y-~~\n"
+BANNER = (
+    b"         (  )   (   )\n"
+    b"       (      )       )\n"
+    b"     (  /\\__/\\   (  )\n"
+    b"      ( o . o )    )\n"
+    b"       \\  ^  /---~~\n"
+    b"      /      \\\n"
+    b"\n"
+    b"                 YANINEKO\n"
+    b"       +-------------------------------+\n"
+    b"       | EAT | PUKE | SMOKING | Mrrph  |\n"
+    b"       +-------------------------------+\n"
+    b"  YANINEKO EAT <length>\n"
+    b"  YANINEKO PUKE <length> <hex>\n"
+    b"  YANINEKO SMOKING\n"
+    b"  YANINEKO SMOKING <address>\n"
+    b"  YANINEKO Mrrph\n"
+)
+
+
+def _read_exact(stream, length):
+    data = bytearray()
+    while len(data) < length:
+        chunk = stream.read(length - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    return bytes(data)
 
 
 def solve(host: str, port: int) -> str:
     with socket.create_connection((host, port), timeout=TIMEOUT) as sock:
         sock.settimeout(TIMEOUT)
         stream = sock.makefile("rwb", buffering=0)
-        if stream.readline(len(BANNER) + 1) != BANNER:
+        if _read_exact(stream, len(BANNER)) != BANNER:
             raise RuntimeError("Yani Neko banner was missing")
 
         def exchange(command: str) -> str:

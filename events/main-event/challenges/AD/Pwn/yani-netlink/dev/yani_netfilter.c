@@ -51,7 +51,22 @@
 #define YANI_HOOK_WINDOW (5 * HZ)
 
 static const char yani_banner[] =
-	"YANINEKO  /\\_/\\\\  (=^.^=)y-~~\n";
+	"         (  )   (   )\n"
+	"       (      )       )\n"
+	"     (  /\\__/\\   (  )\n"
+	"      ( o . o )    )\n"
+	"       \\  ^  /---~~\n"
+	"      /      \\\n"
+	"\n"
+	"                 YANINEKO\n"
+	"       +-------------------------------+\n"
+	"       | EAT | PUKE | SMOKING | Mrrph  |\n"
+	"       +-------------------------------+\n"
+	"  YANINEKO EAT <length>\n"
+	"  YANINEKO PUKE <length> <hex>\n"
+	"  YANINEKO SMOKING\n"
+	"  YANINEKO SMOKING <address>\n"
+	"  YANINEKO Mrrph\n";
 static const char yani_identity[] = "YANINEKO netfilter=ipv4 kernel=7.2.3\n";
 static const unsigned char yani_memory_identity[] =
 	"YANINEKO memory identity kernel=7.2.3\n";

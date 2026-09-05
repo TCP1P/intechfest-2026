@@ -1,0 +1,45 @@
+# rsctf Attack & Defense — self-hosted service for "Yani-netlink"
+# Unique per challenge, so you can run several Bring Your Own Container (BYOC) challenges side by side.
+name: rsctf-byoc-35-128
+#
+#   docker compose up -d        # that's it — works out of the box.
+#
+# This runs immediately: the rsctf agent makes one outbound connection to
+# the game (no public IP / inbound firewall / VPN), and the placeholder
+# 'service' serves the rotating flag so your status goes GREEN right away.
+# Then replace the 'service' block with your real vulnerable service — it
+# only has to listen on port 31337 and read its flag from /shared/flag.
+services:
+  # ───────────────────────────────────────────────────────────────────
+  # >>> REPLACE THIS with your service (build: ./yourdir  OR  image: you/img).
+  #     Keep the flag volume; your service must listen on the port below.
+  # The default just serves /shared/flag so the connection works on day one.
+  service:
+    image: docker.io/alpine/socat@sha256:4e625a62c9ea40ccbce93b9a4fcc6b41740a9f308389c216f34c88ce3abb275b
+    command: ["TCP-LISTEN:31337,fork,reuseaddr", "SYSTEM:cat /shared/flag 2>/dev/null"]
+    restart: unless-stopped
+    volumes:
+      - flag:/shared:ro        # rotating flag at /shared/flag (read-only to you)
+
+  # The tunnel agent — public image, token baked in. Don't edit this.
+  rsctf-agent:
+    image: "ghcr.io/dimasma0305/rsctf-byoc-agent@sha256:9a46db14e8e61f1750c90b6e358e846547cd360df6ee9525ef1bacb8df5e8bc5"
+    restart: "on-failure:5"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    environment:
+      RSCTF_BYOC_MODE: agent
+      RSCTF_BYOC_TUNNEL_URL: "wss://intechfest.1pc.tf/api/stateful/Game/35/Ad/Byoc/Agent/378/128/196d6725221b7ea3ed5e03c05f7f9aa3db38b4200b67e490b9108cfc3fed0460"
+      RSCTF_BYOC_SERVICE: "service:31337"
+      RSCTF_BYOC_FLAG_FILE: /shared/flag
+    volumes:
+      - flag:/shared
+    depends_on:
+      - service
+
+volumes:
+  flag:

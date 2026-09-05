@@ -6,16 +6,19 @@
 - Type: self-hosted/BYOC `AttackDefense`, Pwn
 - Kernel: Linux 7.2.3, x86-64, GCC 12 container, `make -j8 bzImage`
 - Source tarball SHA-256: `8ba259e8e7b13ec6ef0941c8a39ad90b24bd4a4d6c0010ba6bafb794550ecd03`
-- `bzImage` SHA-256: `670a9497f3047a40fea9806b537fd420723b91bf622ab29de227e6491fe1084e`
+- `bzImage` SHA-256: `25221d5cb8c78a183bed6d2499b3d62743eca7e8f68cf614146a730f1d854bd6`
 - `initramfs.cpio.gz` SHA-256: `a71ddd1a156c25c755a7d3d99cdff59f0575e11bff3e96bb31626268b288ff76`
-- `yani_netfilter.c` snippet SHA-256: `cd008d236232aa989537634767e0e4c520cd295e06105aef61232daf8beaee14`
-- `vmlinux.unstripped` SHA-256: `807c7eb7efcc7d3d420091e6ae1af469411ae257429e8d1aee7abad860823492`
+- `yani_netfilter.c` snippet SHA-256: `f78d5acaba685f3f89a9db989b97db567ba108b6237bcb21f313a6ad9409fc18`
+- `readme.txt` SHA-256: `a07cc56bae0362966cecb278b12e464e58d6bb67d7a447ad534283a914fe5e44`
+- `vmlinux.unstripped` SHA-256: `29b4a7f37f4f83f0ae54d12c72f9d79c1e87c66517f0f48d6053236895da0084`
+- `kernel.config` SHA-256: `4f15c7049a333146a06bab7bf2e1d623937a81e5c3bdcd49ebe2eeb6c31a1197`
+- `Module.symvers` SHA-256: `1cf2748003e565319a9022522a8fe4a04a38bd5d53434d8055c0c34e3c8ed664`
 - The Docker context stores this ELF as `vmlinux.unstripped.part-00`,
   `vmlinux.unstripped.part-01`, `vmlinux.unstripped.part-02`, and
   `vmlinux.unstripped.part-03`. Docker joins
   them into `/opt/yani/vmlinux.unstripped`.
-- Docker image index: `sha256:b0e33011573518f54c8bf3a68e97709516c7329e5c1153f5ab439c845c909ee6`
-- Docker image config: `sha256:d634bd610eadc3f3e982226ed19d5afd758e29c2a9c11188520d2206a8d9a73d`
+- Docker image index: `sha256:a86dd87bc05c7a52adb9380e24a1cd854e10db526198f2647bd440fb46f82374`
+- Docker image config: `sha256:3ee5a5bf243669bd56afc1a9cb68f5bdebf572bc9cc2ba1d7315f6678bc7280d`
 - Player transport: TCP port `31337`. UDP accepts one request per datagram.
 - The relay, netfilter hook, and `/proc/yani` are built into `bzImage`. The
   initramfs contains BusyBox and boot files. It has no challenge daemon or
@@ -32,7 +35,22 @@
 TCP sends the banner first:
 
 ```
-YANINEKO  /\_/\\  (=^.^=)y-~~
+         (  )   (   )
+       (      )       )
+     (  /\__/\   (  )
+      ( o . o )    )
+       \  ^  /---~~
+      /      \
+
+                 YANINEKO
+       +-------------------------------+
+       | EAT | PUKE | SMOKING | Mrrph  |
+       +-------------------------------+
+  YANINEKO EAT <length>
+  YANINEKO PUKE <length> <hex>
+  YANINEKO SMOKING
+  YANINEKO SMOKING <address>
+  YANINEKO Mrrph
 ```
 
 Each TCP command is one newline-terminated line. UDP returns the banner and one

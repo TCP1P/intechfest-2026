@@ -12,19 +12,36 @@ from lib import AdContext, Mumble, Offline, checker, run_ad_checker
 TIMEOUT = 3.0
 MAX_RESPONSE = 4096
 PORT = 31337
-BANNER = b"YANINEKO  /\\_/\\\\  (=^.^=)y-~~\n"
+BANNER = (
+    b"         (  )   (   )\n"
+    b"       (      )       )\n"
+    b"     (  /\\__/\\   (  )\n"
+    b"      ( o . o )    )\n"
+    b"       \\  ^  /---~~\n"
+    b"      /      \\\n"
+    b"\n"
+    b"                 YANINEKO\n"
+    b"       +-------------------------------+\n"
+    b"       | EAT | PUKE | SMOKING | Mrrph  |\n"
+    b"       +-------------------------------+\n"
+    b"  YANINEKO EAT <length>\n"
+    b"  YANINEKO PUKE <length> <hex>\n"
+    b"  YANINEKO SMOKING\n"
+    b"  YANINEKO SMOKING <address>\n"
+    b"  YANINEKO Mrrph\n"
+)
 IDENTITY = b"YANINEKO netfilter=ipv4 kernel=7.2.3\n"
 MEMORY_IDENTITY = b"YANINEKO memory identity kernel=7.2.3\n"
 INIT_SHA256 = "8708a6dd6d7070d8dbd197b4d5848c1870fbaa938d36227d8cee1a215e0787e9"
 KERNEL_LINK_TEXT = 0xFFFFFFFF81000000
-KERNEL_LINK_MEMORY_IDENTITY = 0xFFFFFFFF825755E0
+KERNEL_LINK_MEMORY_IDENTITY = 0xFFFFFFFF825756A0
 KERNEL_LINK_PREPARE = 0xFFFFFFFF812CDEB0
 KERNEL_LINK_COMMIT = 0xFFFFFFFF812CDC00
 KERNEL_LINK_INIT_TASK = 0xFFFFFFFF82C0CA00
 IMMUTABLE_CODE_CHECKS = (
     (KERNEL_LINK_TEXT, 128, "d97893ed7a4e12bf79dd0ac7ef9bdc76b3526e2c2bcbbd3a2d6d890d3bdd480c"),
-    (0xFFFFFFFF82063BD0, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
-    (0xFFFFFFFF82063DA0, 128, "1f6e87f055ae36a5756e0c8c6ff8105febd63a4a87beb752a5c04777dbab1def"),
+    (0xFFFFFFFF82063DE0, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
+    (0xFFFFFFFF82063FB0, 128, "7e5b6b279d05c89fee654a17ae419275178e352854472365be030796fdc9e969"),
 )
 CONTRACT = (
     b"YANINEKO Yani-netlink kernel relay\n"
@@ -57,13 +74,23 @@ def _line(data: bytes) -> str:
         raise Mumble("response was not UTF-8") from error
 
 
+def _read_exact(reader, length: int) -> bytes:
+    data = bytearray()
+    while len(data) < length:
+        chunk = reader.read(length - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    return bytes(data)
+
+
 def _connect(context: AdContext):
     try:
         sock = socket.create_connection(
             (context.target_ip, context.target_port), TIMEOUT
         )
         stream = sock.makefile("rwb", buffering=0)
-        if stream.readline(len(BANNER) + 1) != BANNER:
+        if _read_exact(stream, len(BANNER)) != BANNER:
             stream.close()
             sock.close()
             raise Mumble("Yani Neko banner was missing")

@@ -14,13 +14,14 @@ COPY bzImage /opt/yani/bzImage
 COPY initramfs.cpio.gz /opt/yani/initramfs.cpio.gz
 COPY start.sh /opt/yani/start.sh
 COPY healthcheck.py /opt/yani/healthcheck.py
+COPY readme.txt /opt/yani/readme.txt
 COPY yani_netfilter.c /opt/yani/yani_netfilter.c
 COPY kernel.config /opt/yani/kernel.config
 COPY Module.symvers /opt/yani/Module.symvers
 COPY vmlinux.unstripped.part-* /tmp/yani-vmlinux/
 RUN chmod 0755 /opt/yani/start.sh /opt/yani/healthcheck.py \
     && cat /tmp/yani-vmlinux/vmlinux.unstripped.part-* > /opt/yani/vmlinux.unstripped \
-    && chmod 0444 /opt/yani/yani_netfilter.c /opt/yani/kernel.config /opt/yani/vmlinux.unstripped /opt/yani/Module.symvers \
+    && chmod 0444 /opt/yani/readme.txt /opt/yani/yani_netfilter.c /opt/yani/kernel.config /opt/yani/vmlinux.unstripped /opt/yani/Module.symvers \
     && rm -rf /tmp/yani-vmlinux
 
 EXPOSE 31337/tcp

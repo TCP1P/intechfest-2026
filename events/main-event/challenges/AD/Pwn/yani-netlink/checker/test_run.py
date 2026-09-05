@@ -36,7 +36,27 @@ class CheckerHelpersTest(unittest.TestCase):
             _line(b"PONG")
 
     def test_banner_is_ascii_and_newline_terminated(self):
-        self.assertEqual(BANNER, b"YANINEKO  /\\_/\\\\  (=^.^=)y-~~\n")
+        self.assertEqual(
+            BANNER,
+            (
+                b"         (  )   (   )\n"
+                b"       (      )       )\n"
+                b"     (  /\\__/\\   (  )\n"
+                b"      ( o . o )    )\n"
+                b"       \\  ^  /---~~\n"
+                b"      /      \\\n"
+                b"\n"
+                b"                 YANINEKO\n"
+                b"       +-------------------------------+\n"
+                b"       | EAT | PUKE | SMOKING | Mrrph  |\n"
+                b"       +-------------------------------+\n"
+                b"  YANINEKO EAT <length>\n"
+                b"  YANINEKO PUKE <length> <hex>\n"
+                b"  YANINEKO SMOKING\n"
+                b"  YANINEKO SMOKING <address>\n"
+                b"  YANINEKO Mrrph\n"
+            ),
+        )
 
     def test_critical_file_whitelist_has_fixed_kernel_entries(self):
         self.assertEqual(set(CRITICAL_FILE_WHITELIST), {
@@ -51,7 +71,7 @@ class CheckerHelpersTest(unittest.TestCase):
 
     def test_kernel_code_whitelist_is_relocatable_and_bounded(self):
         self.assertEqual(KERNEL_LINK_TEXT, 0xFFFFFFFF81000000)
-        self.assertEqual(KERNEL_LINK_MEMORY_IDENTITY, 0xFFFFFFFF825755E0)
+        self.assertEqual(KERNEL_LINK_MEMORY_IDENTITY, 0xFFFFFFFF825756A0)
         self.assertEqual(KERNEL_LINK_PREPARE, 0xFFFFFFFF812CDEB0)
         self.assertEqual(KERNEL_LINK_COMMIT, 0xFFFFFFFF812CDC00)
         self.assertEqual(KERNEL_LINK_INIT_TASK, 0xFFFFFFFF82C0CA00)
@@ -59,8 +79,8 @@ class CheckerHelpersTest(unittest.TestCase):
             IMMUTABLE_CODE_CHECKS,
             (
                 (0xFFFFFFFF81000000, 128, "d97893ed7a4e12bf79dd0ac7ef9bdc76b3526e2c2bcbbd3a2d6d890d3bdd480c"),
-                (0xFFFFFFFF82063BD0, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
-                (0xFFFFFFFF82063DA0, 128, "1f6e87f055ae36a5756e0c8c6ff8105febd63a4a87beb752a5c04777dbab1def"),
+                (0xFFFFFFFF82063DE0, 128, "95e717fde1b6579767cbd15eaff01150fd258a3914398a8818632c6788bea0e0"),
+                (0xFFFFFFFF82063FB0, 128, "7e5b6b279d05c89fee654a17ae419275178e352854472365be030796fdc9e969"),
             ),
         )
         for _, length, digest in IMMUTABLE_CODE_CHECKS:
